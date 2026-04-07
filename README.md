@@ -212,7 +212,7 @@ Where to run these commands:
 
 - Run them from the project root directory.
 - You can use `cmd.exe`, `PowerShell`, `Anaconda Prompt`, or `Miniconda Prompt`.
-- If you are in `PowerShell`, prefer prefixing with `.\`:
+- In `PowerShell`, you must prefix scripts in the current directory with `.\` because PowerShell does not load the current directory by default.
 
 ```powershell
 .\run_python_only.bat
@@ -223,6 +223,20 @@ Where to run these commands:
 ```cmd
 run_python_only.bat
 ```
+
+PowerShell examples:
+
+```powershell
+.\run_python_only.bat
+.\run_gui.bat
+.\run_batch_ber.bat
+.\run_gnuradio.bat
+.\run_vehicular.bat
+.\run_student_testcases.bat
+.\run_showcases.bat
+```
+
+`cmd.exe` examples:
 
 ```cmd
 run_python_only.bat
