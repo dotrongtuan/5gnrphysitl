@@ -720,6 +720,39 @@ or:
 python -m pip install pytest
 ```
 
+#### `ModuleNotFoundError` for `pandas` or other Python packages
+
+Typical symptoms:
+
+- `ModuleNotFoundError: No module named 'pandas'`
+- similar import errors for `numpy`, `scipy`, `matplotlib`, `yaml`, or `PyQt5`
+
+What to do:
+
+- Install the project dependencies into the same Python environment you are using to run the command:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+- On Windows, if you are using a local virtual environment, prefer:
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+- Then run the script with the same interpreter:
+
+```powershell
+.venv\Scripts\python.exe run_student_testcases.py --config configs/default.yaml --output-dir outputs/student_testcases
+```
+
+- If needed, verify which interpreter is active:
+
+```bash
+python -c "import sys; print(sys.executable)"
+```
+
 #### GUI starts but no GNU Radio windows appear
 
 Typical reason:
