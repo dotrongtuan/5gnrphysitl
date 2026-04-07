@@ -87,20 +87,56 @@ pip install -r requirements.txt
 
 2. Run a single link simulation.
 
+Where to run this command:
+
+- On Windows: run it in the same `PowerShell`, `cmd.exe`, or `Anaconda Prompt` where the environment is already active.
+- If you did not activate the virtual environment, use `.venv\Scripts\python.exe` instead of `python`.
+- On Linux/macOS: run it in the terminal where `.venv` is already activated.
+
 ```bash
 python main.py --config configs/default.yaml
 ```
 
+Windows without activation:
+
+```powershell
+.venv\Scripts\python.exe main.py --config configs/default.yaml
+```
+
 3. Launch the research GUI.
+
+Where to run this command:
+
+- On Windows: use the same shell where the environment is active.
+- If activation is blocked, call `.venv\Scripts\python.exe` directly.
+- On Linux/macOS: use the terminal where `.venv` is active.
 
 ```bash
 python main.py --config configs/default.yaml --gui
 ```
 
+Windows without activation:
+
+```powershell
+.venv\Scripts\python.exe main.py --config configs/default.yaml --gui
+```
+
 4. Run a quick batch sweep.
+
+Where to run this command:
+
+- On Windows: use the same shell where the environment is active.
+- If activation is blocked, call `.venv\Scripts\python.exe` directly.
+- On Linux/macOS: use the terminal where `.venv` is active.
 
 ```bash
 python run_experiments.py --experiment ber_vs_snr --config configs/default.yaml --output-dir outputs
+```
+
+Windows without activation:
+
+```powershell
+.venv\Scripts\python.exe run_experiments.py --experiment ber_vs_snr --config configs/default.yaml --output-dir outputs
 ```
 
 ### Quick Start B: Full GNU Radio mode
@@ -113,6 +149,11 @@ Best for:
 
 1. Create one Conda environment for everything.
 
+Where to run these commands:
+
+- On Windows: use `Anaconda Prompt`, `Miniconda Prompt`, or `PowerShell` only after running `conda init powershell` and reopening the shell.
+- On Linux/macOS: use a normal terminal where Conda is already initialized.
+
 ```bash
 conda create -n 5gnr-phy python=3.10 -y
 conda activate 5gnr-phy
@@ -122,17 +163,32 @@ pip install -r requirements.txt
 
 2. Check that GNU Radio imports correctly.
 
+Where to run this command:
+
+- On Windows: use the same `Anaconda Prompt`, `Miniconda Prompt`, or initialized `PowerShell` where `conda activate 5gnr-phy` was executed.
+- On Linux/macOS: use the terminal where the Conda environment is active.
+
 ```bash
 python -c "import gnuradio; print('GNU Radio import OK')"
 ```
 
 3. Run the simulator with the GNU Radio loopback override.
 
+Where to run this command:
+
+- Use the same shell where `conda activate 5gnr-phy` is already active.
+- If `python` points to the wrong interpreter, verify with `python -c "import sys; print(sys.executable)"` before running.
+
 ```bash
 python main.py --config configs/default.yaml --override configs/scenario_gnuradio.yaml
 ```
 
 4. If you want the dashboard as well, launch:
+
+Where to run this command:
+
+- Use the same active Conda shell as in steps 2 and 3.
+- On Windows, this usually means `Anaconda Prompt`, `Miniconda Prompt`, or `PowerShell` after `conda init powershell`.
 
 ```bash
 python main.py --config configs/default.yaml --override configs/scenario_gnuradio.yaml --gui
@@ -150,6 +206,22 @@ The repository also includes one-command launchers for common workflows.
 
 ### Windows `.bat`
 
+Where to run these commands:
+
+- Run them from the project root directory.
+- You can use `cmd.exe`, `PowerShell`, `Anaconda Prompt`, or `Miniconda Prompt`.
+- If you are in `PowerShell`, prefer prefixing with `.\`:
+
+```powershell
+.\run_python_only.bat
+```
+
+- If you are in `cmd.exe`, you can run them directly:
+
+```cmd
+run_python_only.bat
+```
+
 ```cmd
 run_python_only.bat
 run_gui.bat
@@ -161,6 +233,12 @@ run_showcases.bat
 ```
 
 ### Linux/macOS `.sh`
+
+Where to run these commands:
+
+- Run them from the project root directory.
+- Use a normal shell such as `bash`, `zsh`, or another POSIX-compatible terminal.
+- If you created `.venv`, activate it first, or let the scripts auto-detect `.venv/bin/python`.
 
 ```bash
 chmod +x run_python_only.sh run_gui.sh run_batch_ber.sh run_gnuradio.sh run_vehicular.sh run_student_testcases.sh run_showcases.sh
@@ -174,6 +252,12 @@ chmod +x run_python_only.sh run_gui.sh run_batch_ber.sh run_gnuradio.sh run_vehi
 ```
 
 ### `Makefile` targets
+
+Where to run these commands:
+
+- On Linux/macOS: run them in a terminal from the project root.
+- On Windows: use `Git Bash`, `MSYS2`, `WSL`, or another environment where `make` is available.
+- If you are using plain `PowerShell` or `cmd.exe` on Windows and do not have `make`, prefer the `.bat` launchers instead.
 
 ```bash
 make run
@@ -399,6 +483,17 @@ or call the interpreter directly:
 #### Option B: Full stack with Conda and GNU Radio
 
 Recommended when you want `grc/` flowgraphs and GNU Radio QT sinks:
+
+Run these commands in:
+
+- `Anaconda Prompt` or `Miniconda Prompt`
+- or `PowerShell` after:
+
+```powershell
+conda init powershell
+```
+
+Then close and reopen PowerShell before continuing.
 
 ```powershell
 conda create -n 5gnr-phy python=3.10 -y
