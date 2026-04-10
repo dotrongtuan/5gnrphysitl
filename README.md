@@ -58,14 +58,20 @@ Windows PowerShell:
 ```powershell
 cd C:\path\to\5gnr_phy_stl
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
 If `python` works but `py` does not, that is normal on some Windows setups. Use `python -m venv .venv`.
 
-If PowerShell blocks `.venv\Scripts\Activate.ps1`, use one of these alternatives:
+If PowerShell blocks `.\.venv\Scripts\Activate.ps1`, use one of these alternatives:
+
+```powershell
+.\.venv\Scripts\activate.bat
+```
+
+If you are using `cmd.exe` instead of PowerShell:
 
 ```cmd
 .venv\Scripts\activate.bat
@@ -74,7 +80,7 @@ If PowerShell blocks `.venv\Scripts\Activate.ps1`, use one of these alternatives
 or run the virtual-environment Python directly without activation:
 
 ```powershell
-.venv\Scripts\python.exe main.py --config configs/default.yaml
+.\.venv\Scripts\python.exe main.py --config configs/default.yaml
 ```
 
 Ubuntu/macOS:
@@ -92,7 +98,7 @@ pip install -r requirements.txt
 Where to run this command:
 
 - On Windows: run it in the same `PowerShell`, `cmd.exe`, or `Anaconda Prompt` where the environment is already active.
-- If you did not activate the virtual environment, use `.venv\Scripts\python.exe` instead of `python`.
+- If you did not activate the virtual environment, use the local interpreter path instead of `python`, for example `.\.venv\Scripts\python.exe` in PowerShell.
 - On Linux/macOS: run it in the terminal where `.venv` is already activated.
 
 ```bash
@@ -102,7 +108,7 @@ python main.py --config configs/default.yaml
 Windows without activation:
 
 ```powershell
-.venv\Scripts\python.exe main.py --config configs/default.yaml
+.\.venv\Scripts\python.exe main.py --config configs/default.yaml
 ```
 
 3. Launch the research GUI.
@@ -110,7 +116,7 @@ Windows without activation:
 Where to run this command:
 
 - On Windows: use the same shell where the environment is active.
-- If activation is blocked, call `.venv\Scripts\python.exe` directly.
+- If activation is blocked, call `.\.venv\Scripts\python.exe` directly in PowerShell.
 - On Linux/macOS: use the terminal where `.venv` is active.
 
 ```bash
@@ -120,7 +126,7 @@ python main.py --config configs/default.yaml --gui
 Windows without activation:
 
 ```powershell
-.venv\Scripts\python.exe main.py --config configs/default.yaml --gui
+.\.venv\Scripts\python.exe main.py --config configs/default.yaml --gui
 ```
 
 4. Run a quick batch sweep.
@@ -128,7 +134,7 @@ Windows without activation:
 Where to run this command:
 
 - On Windows: use the same shell where the environment is active.
-- If activation is blocked, call `.venv\Scripts\python.exe` directly.
+- If activation is blocked, call `.\.venv\Scripts\python.exe` directly in PowerShell.
 - On Linux/macOS: use the terminal where `.venv` is active.
 
 ```bash
@@ -138,7 +144,7 @@ python run_experiments.py --experiment ber_vs_snr --config configs/default.yaml 
 Windows without activation:
 
 ```powershell
-.venv\Scripts\python.exe run_experiments.py --experiment ber_vs_snr --config configs/default.yaml --output-dir outputs
+.\.venv\Scripts\python.exe run_experiments.py --experiment ber_vs_snr --config configs/default.yaml --output-dir outputs
 ```
 
 ### Quick Start B: Full GNU Radio mode
@@ -480,14 +486,20 @@ PowerShell:
 ```powershell
 cd C:\path\to\5gnr_phy_stl
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
 If your system does not recognize `py`, use `python -m venv .venv` as shown above.
 
-If PowerShell blocks `.venv\Scripts\Activate.ps1`, either use:
+If PowerShell blocks `.\.venv\Scripts\Activate.ps1`, either use:
+
+```powershell
+.\.venv\Scripts\activate.bat
+```
+
+If you are using `cmd.exe` instead of PowerShell:
 
 ```cmd
 .venv\Scripts\activate.bat
@@ -496,7 +508,7 @@ If PowerShell blocks `.venv\Scripts\Activate.ps1`, either use:
 or call the interpreter directly:
 
 ```powershell
-.venv\Scripts\python.exe main.py --config configs/default.yaml
+.\.venv\Scripts\python.exe main.py --config configs/default.yaml
 ```
 
 #### Option B: Full stack with Conda and GNU Radio
@@ -651,7 +663,7 @@ conda install -c conda-forge gnuradio -y
 
 Typical symptom:
 
-- `.venv\Scripts\Activate.ps1` is blocked by PowerShell
+- `.\.venv\Scripts\Activate.ps1` is blocked by PowerShell
 
 What to do:
 
@@ -662,10 +674,22 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 - Then reopen PowerShell and activate the environment again.
-- If you do not want to change PowerShell policy, use `cmd.exe`:
+- If you do not want to change PowerShell policy, run the batch activator in PowerShell:
+
+```powershell
+.\.venv\Scripts\activate.bat
+```
+
+- If you are using `cmd.exe`, run:
 
 ```cmd
 .venv\Scripts\activate.bat
+```
+
+- You can also skip activation entirely and call the local interpreter directly:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --config configs/default.yaml
 ```
 
 #### Python interpreter mismatch
@@ -739,13 +763,13 @@ python -m pip install -r requirements.txt
 - On Windows, if you are using a local virtual environment, prefer:
 
 ```powershell
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 - Then run the script with the same interpreter:
 
 ```powershell
-.venv\Scripts\python.exe run_student_testcases.py --config configs/default.yaml --output-dir outputs/student_testcases
+.\.venv\Scripts\python.exe run_student_testcases.py --config configs/default.yaml --output-dir outputs/student_testcases
 ```
 
 - If needed, verify which interpreter is active:
