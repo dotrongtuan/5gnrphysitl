@@ -38,6 +38,25 @@ Practical recommendation:
 - If you need GNU Radio flowgraphs and QT sinks, prefer Ubuntu first.
 - On Windows, prefer running the full GNU Radio path inside one Conda environment instead of mixing system Python and external GNU Radio installs.
 
+## Python Version Requirements
+
+This project requires Python 3.10 or newer.
+
+Recommended versions by use case:
+
+| Use Case | Recommended Python | Status |
+| --- | --- | --- |
+| Python-only simulator, GUI, batch experiments | 3.10 or 3.11 | Recommended |
+| GNU Radio integration | 3.10 | Strongly recommended |
+| Python 3.12/3.13 | Usually fine for Python-only mode | Acceptable, but verify local packages |
+| Python 3.9 and older | Unsupported | Will fail on project features such as `dataclass(slots=True)` |
+
+Practical notes:
+
+- Ubuntu 22.04 normally ships with Python 3.10, which is a good default for this project.
+- If you change Python versions after creating `.venv`, delete `.venv` and create it again with the intended interpreter.
+- The launcher scripts reuse `.venv` automatically if it exists, so an old `.venv` created with the wrong Python version will keep causing the same error until recreated.
+
 ## Quick Start
 
 Use one of these two paths depending on your goal.
@@ -57,6 +76,8 @@ Windows PowerShell:
 
 ```powershell
 cd C:\path\to\5gnr_phy_stl
+python --version
+# expect Python 3.10 or newer
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -83,15 +104,42 @@ or run the virtual-environment Python directly without activation:
 .\.venv\Scripts\python.exe main.py --config configs/default.yaml
 ```
 
-Ubuntu/macOS:
+Ubuntu 22.04 / Ubuntu 24.04:
 
 ```bash
 cd /path/to/5gnr_phy_stl
+python3 --version
+# on Ubuntu 22.04 this should normally be Python 3.10.x
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
+
+If `python3 --version` is older than 3.10, use a newer interpreter explicitly:
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+macOS:
+
+```bash
+cd /path/to/5gnr_phy_stl
+python3 --version
+# expect Python 3.10 or newer
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+If macOS still points `python3` to an older version, install a newer interpreter first, for example with Homebrew, then recreate `.venv` with that interpreter.
 
 2. Run a single link simulation.
 
@@ -207,6 +255,7 @@ Notes:
 - `configs/scenario_gnuradio.yaml` enables `simulation.use_gnuradio: true`.
 - If GNU Radio is not available, the project falls back to the Python-only path.
 - For the most stable GNU Radio experience, prefer Ubuntu.
+- Before creating a GNU Radio Conda environment, check the interpreter version with `python --version` or `conda run -n 5gnr-phy python --version`.
 
 ## Convenience Commands
 
@@ -296,6 +345,7 @@ make compile
 Notes:
 
 - The `.bat` and `.sh` launchers automatically prefer the local `.venv` interpreter if it exists.
+- If `.venv` was created with the wrong Python version, remove it and recreate it before relying on the launchers.
 - Extra command-line arguments are passed through to the underlying Python command.
 - `make test` requires `pytest` to be installed in the active environment.
 - For a classroom-oriented walkthrough, see `docs/STUDENT_TESTCASES.md`.
@@ -463,6 +513,8 @@ Outputs:
 - Python-only mode is the easiest path and does not require SDR hardware.
 - For full GNU Radio integration, use a Python version that matches your GNU Radio build.
 - The most reliable full-stack setup is usually one Conda environment containing Python, GNU Radio, and the project dependencies together.
+- Check the interpreter version before creating `.venv` or Conda environments.
+- If an existing `.venv` was created with an unsupported Python version, delete it and recreate it.
 
 ### Python-only setup
 
@@ -485,6 +537,8 @@ PowerShell:
 
 ```powershell
 cd C:\path\to\5gnr_phy_stl
+python --version
+# expect Python 3.10 or newer
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -509,6 +563,13 @@ or call the interpreter directly:
 
 ```powershell
 .\.venv\Scripts\python.exe main.py --config configs/default.yaml
+```
+
+Recommended verification after install:
+
+```powershell
+python --version
+python -c "import numpy, scipy, matplotlib, pandas, yaml; print('core imports OK')"
 ```
 
 #### Option B: Full stack with Conda and GNU Radio
@@ -554,7 +615,20 @@ Recommended for:
 sudo apt update
 sudo apt install -y python3 python3-venv python3-pip
 cd /path/to/5gnr_phy_stl
+python3 --version
 python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+If `python3 --version` is below 3.10, install and use Python 3.10 explicitly:
+
+```bash
+sudo apt update
+sudo apt install -y python3.10 python3.10-venv python3-pip
+cd /path/to/5gnr_phy_stl
+python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
@@ -606,6 +680,44 @@ GNU Radio 3.10+ is optional but recommended for the flowgraph wrappers.
 - Use `configs/scenario_gnuradio.yaml` for a ready-made loopback quick-start profile.
 
 ### Troubleshooting
+
+#### `TypeError: dataclass() got an unexpected keyword argument 'slots'`
+
+Typical symptom:
+
+- startup fails very early while importing project modules
+- traceback points to a line such as `@dataclass(slots=True)`
+
+What it means:
+
+- you are not running the project with Python 3.10 or newer
+- or your current `.venv` was created with an older interpreter and is still being reused
+
+What to do on Ubuntu 22.04/24.04:
+
+```bash
+python3 --version
+rm -rf .venv
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python --version
+```
+
+What to do on macOS:
+
+```bash
+python3 --version
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python --version
+```
+
+If `python3 --version` is still below 3.10 on macOS, install a newer Python first, then recreate `.venv` with that interpreter.
 
 #### PyQt install failed
 
