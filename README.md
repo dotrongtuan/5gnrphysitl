@@ -1,4 +1,4 @@
-# 5G NR PHY STL Research Platform
+﻿# 5G NR PHY STL Research Platform
 
 Software-in-the-loop, software-only prototype for a 5G NR-inspired PHY link simulator built with Python, GNU Radio integration hooks, NumPy/SciPy, Matplotlib, PyQtGraph, Dash, and PyQt5.
 
@@ -37,6 +37,23 @@ Practical recommendation:
 - If you only need the simulator core, GUI dashboard, and experiment scripts, start with Python-only mode.
 - If you need GNU Radio flowgraphs and QT sinks, prefer Ubuntu first.
 - On Windows, prefer running the full GNU Radio path inside one Conda environment instead of mixing system Python and external GNU Radio installs.
+
+## Installation Automation
+
+The repository includes OS-specific installation workflows and reusable installer scripts under [`install/`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install).
+
+Recommended entry point:
+
+- installation workflow guide: [`docs/INSTALLATION_WORKFLOWS.md`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/INSTALLATION_WORKFLOWS.md)
+
+Provided installer scripts:
+
+- Windows Python-only: [`install/windows-python-only.ps1`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/windows-python-only.ps1)
+- Windows Radioconda + GNU Radio: [`install/windows-radioconda.ps1`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/windows-radioconda.ps1)
+- Ubuntu Python-only: [`install/ubuntu-python-only.sh`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/ubuntu-python-only.sh)
+- Ubuntu GNU Radio: [`install/ubuntu-gnuradio.sh`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/ubuntu-gnuradio.sh)
+- macOS Python-only: [`install/macos-python-only.sh`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/macos-python-only.sh)
+- macOS GNU Radio: [`install/macos-gnuradio.sh`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/macos-gnuradio.sh)
 
 ## Python Version Requirements
 
@@ -632,6 +649,7 @@ PowerShell examples:
 ```powershell
 .\run_python_only.bat
 .\run_gui.bat
+.\run_gui_radioconda.bat
 .\run_batch_ber.bat
 .\run_gnuradio.bat
 .\run_vehicular.bat
@@ -644,12 +662,43 @@ PowerShell examples:
 ```cmd
 run_python_only.bat
 run_gui.bat
+run_gui_radioconda.bat
 run_batch_ber.bat
 run_gnuradio.bat
 run_vehicular.bat
 run_student_testcases.bat
 run_showcases.bat
 ```
+
+### Windows PowerShell Radioconda launcher
+
+If you already installed Radioconda and want `TX sink` / `RX sink` to work, use the dedicated launcher:
+
+```powershell
+.\run_gui_radioconda.ps1
+```
+
+If PowerShell blocks local scripts, use:
+
+```powershell
+.\run_gui_radioconda.bat
+```
+
+Useful options:
+
+```powershell
+.\run_gui_radioconda.ps1 -PrintOnly
+.\run_gui_radioconda.ps1 -InstallRequirements
+.\run_gui_radioconda.ps1 -UseGnuRadioLoopback
+.\run_gui_radioconda.ps1 -PythonPath C:\path\to\radioconda\python.exe
+```
+
+What it does:
+
+- searches common Radioconda and Forge-style Windows install locations
+- tests candidate interpreters with the exact GNU Radio QT import used by the GUI
+- launches `main.py --gui` with the first interpreter that passes
+- optionally enables the GNU Radio loopback override
 
 ### Linux/macOS `.sh`
 
@@ -696,6 +745,7 @@ Notes:
 - If `.venv` was created with the wrong Python version, remove it and recreate it before relying on the launchers.
 - Extra command-line arguments are passed through to the underlying Python command.
 - `make test` requires `pytest` to be installed in the active environment.
+- For end-to-end installation procedures and automation scripts, see [`docs/INSTALLATION_WORKFLOWS.md`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/INSTALLATION_WORKFLOWS.md).
 - For a classroom-oriented walkthrough, see `docs/STUDENT_TESTCASES.md`.
 - For deeper 3GPP-inspired teaching demos, see `docs/SHOWCASES_3GPP_PHY.md`.
 - For GUI parameter meanings, ranges, units, and symbols, see `docs/SIMULATION_PARAMETER_REFERENCE.md`.
@@ -766,18 +816,18 @@ The core design principle is to keep each PHY processing stage explicit and repl
 
 ```text
 5gnr_phy_stl/
-├── README.md
-├── requirements.txt
-├── main.py
-├── run_experiments.py
-├── configs/
-├── phy/
-├── channel/
-├── grc/
-├── gui/
-├── experiments/
-├── utils/
-└── tests/
+â”œâ”€â”€ README.md
+â”œâ”€â”€ requirements.txt
+â”œâ”€â”€ main.py
+â”œâ”€â”€ run_experiments.py
+â”œâ”€â”€ configs/
+â”œâ”€â”€ phy/
+â”œâ”€â”€ channel/
+â”œâ”€â”€ grc/
+â”œâ”€â”€ gui/
+â”œâ”€â”€ experiments/
+â”œâ”€â”€ utils/
+â””â”€â”€ tests/
 ```
 
 ## 4. Module Responsibilities
@@ -1354,3 +1404,5 @@ python main.py --config configs/default.yaml --override configs/scenario_vehicul
 - Add HARQ combining and redundancy versions.
 - Extend KPI reporting with BLER confidence intervals and latency.
 - Add SSB/PBCH acquisition and synchronization experiments.
+
+
