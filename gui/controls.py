@@ -122,6 +122,7 @@ class ControlPanel(QWidget):
         primary_button_layout.setVerticalSpacing(6)
         for key, label in [
             ("run", "Run"),
+            ("step_mode", "Step Mode"),
             ("stop", "Stop"),
             ("reset", "Reset"),
             ("save", "Save"),

@@ -208,10 +208,12 @@ Windows PowerShell without activation:
 The current runtime plot workspace includes:
 
 - `PHY Pipeline` tab
-  - stage-by-stage view of the full PHY chain from transport bits to decoded bits
-  - explicit TX, channel, and RX sections
-  - per-stage previews for bitstreams, LLRs, constellations, grids, and waveforms
-  - per-stage summaries and data excerpts for teaching and debugging
+  - clickable block-by-block PHY flow from `Bits` through `CRC Check`
+  - explicit TX, channel, and RX sections arranged as a central processing chain
+  - animation controls: `Play`, `Pause`, `Prev`, `Next`, `Reset`
+  - timeline scrubber for PHY stages plus frame / slot / symbol controls
+  - per-stage artifact switching for bitstreams, LLRs, constellations, grids, waveforms, spectra, and KPI bars
+  - symbol-aware secondary preview for grid / waveform / constellation artifacts
 - `Signal Domain` tab
   - reference / pre-EQ / post-EQ constellation
   - TX/RX waveform overlay
@@ -237,6 +239,7 @@ Auxiliary instrumentation from the control panel:
 - `TX sink` opens GNU Radio QT time/frequency/waterfall sinks when GNU Radio is installed
 - `RX sink` opens GNU Radio QT time/constellation/frequency/waterfall sinks when GNU Radio is installed
 - `Open Dash` launches a browser-based batch analytics dashboard from the latest batch CSV
+- `Step Mode` runs one simulation and jumps directly into block-by-block playback inside `PHY Pipeline`
 
 Configuration controls remain on the left, and KPI / environment status / warnings / logs remain on the right.
 
@@ -904,6 +907,12 @@ The dashboard supports:
   - equalization
   - soft demapping / descrambling
   - decoding + CRC
+- Interactive PHY flow controls:
+  - clickable stage blocks in the main chain
+  - play / pause / next / previous / reset animation controls
+  - stage timeline scrubber
+  - frame / slot / symbol scrubbers
+  - artifact selector per stage
 - Real-time plot areas for constellation, waveform, spectrum, TX resource-grid allocation, impulse response, and estimated channel.
 - Batch analytics tab rendered with embedded Matplotlib.
 - Dash launcher for browser-based analytics.

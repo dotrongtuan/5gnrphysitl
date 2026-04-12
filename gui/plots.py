@@ -415,7 +415,7 @@ class PlotPanel(QWidget):
 
         subcarriers, relative_error = self._per_subcarrier_relative_error(result)
         self.evm_subcarrier_curve.setData(subcarriers, relative_error)
-        self.pipeline_panel.set_pipeline(result.get("pipeline", []))
+        self.pipeline_panel.set_result(result)
 
     def update_batch_result(self, dataframe, experiment_name: str) -> None:
         for axis in self.batch_axes.ravel():

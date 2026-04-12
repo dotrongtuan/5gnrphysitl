@@ -82,6 +82,7 @@ class NrPhyResearchApp(QMainWindow):
         self.last_batch_csv: Path | None = None
         self.dash_process: subprocess.Popen | None = None
         self.gr_windows: list[QWidget] = []
+        self.step_mode_requested = False
 
         self.controls = ControlPanel()
         self.controls.apply_config(self.current_config)
@@ -114,6 +115,7 @@ class NrPhyResearchApp(QMainWindow):
 
     def _connect_signals(self) -> None:
         self.controls.buttons["run"].clicked.connect(self.run_single)
+        self.controls.buttons["step_mode"].clicked.connect(self.run_step_mode)
         self.controls.buttons["batch"].clicked.connect(self.run_batch)
         self.controls.buttons["reset"].clicked.connect(self.reset_config)
         self.controls.buttons["save"].clicked.connect(self.save_config)
@@ -176,6 +178,7 @@ class NrPhyResearchApp(QMainWindow):
             f"Channel: {channel.get('model', 'awgn')} / {channel.get('profile', 'static_near')} | "
             f"SNR: {channel.get('snr_db', 0.0)} dB | Doppler: {channel.get('doppler_hz', 0.0)} Hz",
             "Use the PHY Pipeline tab to inspect each stage from transport bits through coding, OFDM, channel impairments, synchronization, equalization, and decoding.",
+            "Use Step Mode to run once and then replay the chain block-by-block with the pipeline timeline and playback controls.",
         ]
 
         if bool(receiver.get("perfect_sync", False)):
@@ -226,7 +229,14 @@ class NrPhyResearchApp(QMainWindow):
 
     def run_single(self) -> None:
         config = self._build_runtime_config()
+        self.step_mode_requested = False
         self.dashboard.append_log("Preparing single-link run.")
+        self._start_worker(config=config, batch=False)
+
+    def run_step_mode(self) -> None:
+        config = self._build_runtime_config()
+        self.step_mode_requested = True
+        self.dashboard.append_log("Preparing single-link run for step-by-step PHY playback.")
         self._start_worker(config=config, batch=False)
 
     def run_batch(self) -> None:
@@ -348,11 +358,17 @@ class NrPhyResearchApp(QMainWindow):
             self.plots.update_from_result(result)
             self.dashboard.update_kpis(result["kpis"].as_dict())
             self._update_notes(result)
+            if self.step_mode_requested:
+                self.plots.tabs.setCurrentWidget(self.plots.pipeline_panel)
+                self.plots.pipeline_panel.reset_playback()
+                self.dashboard.append_log("Step mode is ready in the PHY Pipeline tab.")
+            self.step_mode_requested = False
             channel_state = result.get("channel_state", {})
             if channel_state.get("gnu_radio_requested") and not channel_state.get("gnu_radio_used"):
                 self.dashboard.append_log("GNU Radio loopback request fell back to the Python-only channel path.")
             self.dashboard.append_log("Single-link simulation completed.")
         elif isinstance(result, dict) and "dataframe" in result:
+            self.step_mode_requested = False
             dataframe = result["dataframe"]
             experiment_name = str(result.get("experiment_name", "batch"))
             self.last_batch_dataframe = dataframe
@@ -368,6 +384,7 @@ class NrPhyResearchApp(QMainWindow):
             self.dashboard.update_kpis(summary)
 
     def handle_error(self, message: str) -> None:
+        self.step_mode_requested = False
         self.dashboard.append_log(f"Error: {message}")
         QMessageBox.critical(self, "Simulation error", message)
 
