@@ -71,5 +71,10 @@ receiver:
   timing_search_window: 96
   cfo_symbols_to_average: 4
 
+experiments:
+  default_batch_experiment: ber_vs_snr
+  snr_sweep_db: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+  trials_per_point: 6
+
 gui:
   refresh_ms: 250

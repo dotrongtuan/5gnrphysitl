@@ -8,6 +8,8 @@ PyYAML>=6.0
 # GUI
 PyQt5>=5.15
 pyqtgraph>=0.13
+dash>=2.17
+plotly>=5.22
 
 # Testing
 pytest>=8.0

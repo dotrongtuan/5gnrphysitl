@@ -53,6 +53,17 @@ class ControlPanel(QWidget):
         self.widgets["mode"] = self._combo(["data", "control", "compare"])
         self.widgets["modulation"] = self._combo(["QPSK", "16QAM", "64QAM", "256QAM"])
         self.widgets["mcs"] = self._spin(0, 27, 9)
+        self.widgets["batch_experiment"] = self._combo(
+            [
+                "ber_vs_snr",
+                "bler_vs_snr",
+                "evm_vs_snr",
+                "control_vs_data",
+                "fading_sweep",
+                "doppler_sweep",
+                "impairment_sweep",
+            ]
+        )
         self.widgets["scs_khz"] = self._combo(["15", "30", "60"])
         self.widgets["fft_size"] = self._combo(["256", "512", "1024"])
         self.widgets["n_rb"] = self._spin(6, 80, 24)
@@ -75,6 +86,7 @@ class ControlPanel(QWidget):
         form.addRow("Mode", self.widgets["mode"])
         form.addRow("Modulation", self.widgets["modulation"])
         form.addRow("MCS", self.widgets["mcs"])
+        form.addRow("Batch experiment", self.widgets["batch_experiment"])
         form.addRow("SCS (kHz)", self.widgets["scs_khz"])
         form.addRow("FFT", self.widgets["fft_size"])
         form.addRow("RB", self.widgets["n_rb"])
@@ -94,7 +106,7 @@ class ControlPanel(QWidget):
 
         layout.addWidget(mode_box)
 
-        button_layout = QHBoxLayout()
+        primary_button_layout = QHBoxLayout()
         for key, label in [
             ("run", "Run"),
             ("stop", "Stop"),
@@ -105,13 +117,27 @@ class ControlPanel(QWidget):
         ]:
             button = QPushButton(label)
             self.buttons[key] = button
-            button_layout.addWidget(button)
-        layout.addLayout(button_layout)
+            primary_button_layout.addWidget(button)
+        layout.addLayout(primary_button_layout)
+
+        tooling_button_layout = QHBoxLayout()
+        for key, label in [
+            ("tx_sink", "TX sink"),
+            ("rx_sink", "RX sink"),
+            ("dash", "Open Dash"),
+        ]:
+            button = QPushButton(label)
+            self.buttons[key] = button
+            tooling_button_layout.addWidget(button)
+        layout.addLayout(tooling_button_layout)
         layout.addStretch(1)
 
     def apply_config(self, config: dict) -> None:
         self.widgets["mode"].setCurrentText(config.get("link", {}).get("channel_type", "data"))
         self.widgets["modulation"].setCurrentText(config.get("modulation", {}).get("scheme", "QPSK"))
+        self.widgets["batch_experiment"].setCurrentText(
+            str(config.get("experiments", {}).get("default_batch_experiment", "ber_vs_snr"))
+        )
         self.widgets["scs_khz"].setCurrentText(str(int(config.get("numerology", {}).get("scs_khz", 30))))
         self.widgets["fft_size"].setCurrentText(str(int(config.get("numerology", {}).get("fft_size", 512))))
         self.widgets["n_rb"].setValue(int(config.get("numerology", {}).get("n_rb", 24)))
@@ -155,4 +181,8 @@ class ControlPanel(QWidget):
                 "iq_imbalance_db": float(self.widgets["iq_imbalance_db"].value()),
             },
             "simulation": {"use_gnuradio": self.widgets["use_gnuradio"].isChecked()},
+            "experiments": {"default_batch_experiment": self.widgets["batch_experiment"].currentText()},
         }
+
+    def selected_batch_experiment(self) -> str:
+        return str(self.widgets["batch_experiment"].currentText())

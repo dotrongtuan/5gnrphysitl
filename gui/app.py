@@ -1,18 +1,41 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import importlib.util
 from pathlib import Path
+import subprocess
+import sys
+import webbrowser
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QMessageBox, QSplitter, QWidget
 
 from experiments.ber_vs_snr import run_experiment as run_ber_vs_snr
+from experiments.bler_vs_snr import run_experiment as run_bler_vs_snr
 from experiments.common import simulate_link
+from experiments.control_vs_data import run_experiment as run_control_vs_data
+from experiments.doppler_sweep import run_experiment as run_doppler_sweep
+from experiments.evm_vs_snr import run_experiment as run_evm_vs_snr
+from experiments.fading_sweep import run_experiment as run_fading_sweep
+from experiments.impairment_sweep import run_experiment as run_impairment_sweep
 from gui.config_editor import load_config_dialog, save_config_dialog
 from gui.controls import ControlPanel
 from gui.dashboard import DashboardPanel
+from gui.gnuradio_windows import HAVE_GNURADIO, RxSinkWindow, TxSinkWindow
 from gui.plots import PlotPanel
+from utils.io import save_dataframe_csv
 from utils.validators import deep_merge
+
+
+BATCH_EXPERIMENTS = {
+    "ber_vs_snr": run_ber_vs_snr,
+    "bler_vs_snr": run_bler_vs_snr,
+    "evm_vs_snr": run_evm_vs_snr,
+    "control_vs_data": run_control_vs_data,
+    "fading_sweep": run_fading_sweep,
+    "doppler_sweep": run_doppler_sweep,
+    "impairment_sweep": run_impairment_sweep,
+}
 
 
 class SimulationWorker(QObject):
@@ -21,18 +44,20 @@ class SimulationWorker(QObject):
     log_message = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, config: dict, batch: bool = False) -> None:
+    def __init__(self, config: dict, batch: bool = False, experiment_name: str = "ber_vs_snr") -> None:
         super().__init__()
         self.config = config
         self.batch = batch
+        self.experiment_name = experiment_name
 
     def run(self) -> None:
         try:
             if self.batch:
-                self.log_message.emit("Running batch BER vs SNR experiment.")
+                self.log_message.emit(f"Running batch experiment: {self.experiment_name}.")
                 output_dir = Path(self.config.get("simulation", {}).get("output_dir", "outputs"))
-                dataframe = run_ber_vs_snr(self.config, output_dir=output_dir)
-                self.result_ready.emit({"dataframe": dataframe})
+                runner = BATCH_EXPERIMENTS[self.experiment_name]
+                dataframe = runner(self.config, output_dir=output_dir)
+                self.result_ready.emit({"dataframe": dataframe, "experiment_name": self.experiment_name})
             else:
                 self.log_message.emit("Running single-link simulation.")
                 result = simulate_link(self.config)
@@ -52,6 +77,11 @@ class NrPhyResearchApp(QMainWindow):
         self.current_config = deepcopy(base_config)
         self.thread: QThread | None = None
         self.worker: SimulationWorker | None = None
+        self.last_result: dict | None = None
+        self.last_batch_dataframe = None
+        self.last_batch_csv: Path | None = None
+        self.dash_process: subprocess.Popen | None = None
+        self.gr_windows: list[QWidget] = []
 
         self.controls = ControlPanel()
         self.controls.apply_config(self.current_config)
@@ -60,6 +90,8 @@ class NrPhyResearchApp(QMainWindow):
 
         self._build_ui()
         self._connect_signals()
+        self._configure_optional_tool_buttons()
+        self._update_notes()
         self.dashboard.append_log("Dashboard initialized.")
 
     def _build_ui(self) -> None:
@@ -80,17 +112,68 @@ class NrPhyResearchApp(QMainWindow):
         self.controls.buttons["save"].clicked.connect(self.save_config)
         self.controls.buttons["load"].clicked.connect(self.load_config)
         self.controls.buttons["stop"].clicked.connect(self.stop_worker)
+        self.controls.buttons["tx_sink"].clicked.connect(self.open_tx_sink)
+        self.controls.buttons["rx_sink"].clicked.connect(self.open_rx_sink)
+        self.controls.buttons["dash"].clicked.connect(self.open_dash_dashboard)
+
+    def _configure_optional_tool_buttons(self) -> None:
+        if not HAVE_GNURADIO:
+            self.controls.buttons["tx_sink"].setEnabled(False)
+            self.controls.buttons["rx_sink"].setEnabled(False)
+            self.controls.buttons["tx_sink"].setToolTip("Install GNU Radio 3.10+ in the active environment to enable TX QT sinks.")
+            self.controls.buttons["rx_sink"].setToolTip("Install GNU Radio 3.10+ in the active environment to enable RX QT sinks.")
+        self.controls.buttons["dash"].setToolTip("Launch a browser-based dashboard for the latest batch CSV.")
 
     def _build_runtime_config(self) -> dict:
         self.current_config = deep_merge(self.base_config, self.controls.build_patch())
+        self._update_notes()
         return deepcopy(self.current_config)
 
-    def _start_worker(self, config: dict, batch: bool) -> None:
+    def _update_notes(self, result: dict | None = None) -> None:
+        config = self.current_config
+        link = config.get("link", {})
+        modulation = config.get("modulation", {})
+        numerology = config.get("numerology", {})
+        channel = config.get("channel", {})
+        receiver = config.get("receiver", {})
+        simulation = config.get("simulation", {})
+
+        notes = [
+            f"Mode: {link.get('channel_type', 'data')} | Modulation: {modulation.get('scheme', 'QPSK')} | "
+            f"SCS: {numerology.get('scs_khz', 30)} kHz | FFT: {numerology.get('fft_size', 512)}",
+            f"Channel: {channel.get('model', 'awgn')} / {channel.get('profile', 'static_near')} | "
+            f"SNR: {channel.get('snr_db', 0.0)} dB | Doppler: {channel.get('doppler_hz', 0.0)} Hz",
+        ]
+
+        if bool(receiver.get("perfect_sync", False)):
+            notes.append("Perfect synchronization is enabled. This is a teaching simplification.")
+        if bool(receiver.get("perfect_channel_estimation", False)):
+            notes.append("Perfect channel estimation is enabled. DMRS estimation plots remain useful, but KPI values are optimistic.")
+        if bool(simulation.get("use_gnuradio", False)):
+            if HAVE_GNURADIO:
+                notes.append("GNU Radio loopback is requested and QT sinks can be launched from the GUI.")
+            else:
+                notes.append("GNU Radio loopback is requested, but GNU Radio is not installed in the active Python environment.")
+        if self.controls.widgets["mode"].currentText() == "compare":
+            notes.append("Compare mode currently reuses the data path in single-run mode. Use batch experiments for explicit comparisons.")
+
+        if result is not None:
+            channel_state = result.get("channel_state", {})
+            if channel_state.get("gnu_radio_requested") and not channel_state.get("gnu_radio_used"):
+                notes.append("GNU Radio loopback request fell back to the Python-only channel path at runtime.")
+                error_message = channel_state.get("gnu_radio_error")
+                if error_message:
+                    notes.append(f"GNU Radio fallback reason: {error_message}")
+
+        notes.append("Signal-domain sync summary mixes samples, Hz, and linear EVM for quick diagnostics.")
+        self.dashboard.set_notes(notes)
+
+    def _start_worker(self, config: dict, batch: bool, experiment_name: str = "ber_vs_snr") -> None:
         if self.thread is not None:
             self.dashboard.append_log("Worker already running.")
             return
         self.thread = QThread()
-        self.worker = SimulationWorker(config=config, batch=batch)
+        self.worker = SimulationWorker(config=config, batch=batch, experiment_name=experiment_name)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.log_message.connect(self.dashboard.append_log)
@@ -114,8 +197,9 @@ class NrPhyResearchApp(QMainWindow):
 
     def run_batch(self) -> None:
         config = self._build_runtime_config()
-        self.dashboard.append_log("Preparing batch experiment.")
-        self._start_worker(config=config, batch=True)
+        experiment_name = self.controls.selected_batch_experiment()
+        self.dashboard.append_log(f"Preparing batch experiment: {experiment_name}.")
+        self._start_worker(config=config, batch=True, experiment_name=experiment_name)
 
     def stop_worker(self) -> None:
         if self.thread is None:
@@ -127,6 +211,7 @@ class NrPhyResearchApp(QMainWindow):
     def reset_config(self) -> None:
         self.current_config = deepcopy(self.base_config)
         self.controls.apply_config(self.current_config)
+        self._update_notes()
         self.dashboard.append_log("Configuration reset to defaults.")
 
     def save_config(self) -> None:
@@ -141,21 +226,131 @@ class NrPhyResearchApp(QMainWindow):
             return
         self.current_config = deep_merge(self.base_config, config)
         self.controls.apply_config(self.current_config)
+        self._update_notes()
         self.dashboard.append_log("Configuration loaded from YAML.")
+
+    def _persist_batch_dataframe(self, dataframe, experiment_name: str) -> Path:
+        output_dir = Path(self.current_config.get("simulation", {}).get("output_dir", "outputs")) / "gui_batch"
+        csv_path = output_dir / f"{experiment_name}_latest.csv"
+        save_dataframe_csv(dataframe.to_dict(orient="records"), csv_path)
+        self.last_batch_csv = csv_path
+        return csv_path
+
+    def _ensure_last_result(self) -> dict | None:
+        if self.last_result is not None:
+            return self.last_result
+        self.dashboard.append_log("No cached single-link result. Running one simulation synchronously for instrumentation.")
+        try:
+            config = self._build_runtime_config()
+            result = simulate_link(config)
+        except Exception as exc:  # pragma: no cover - GUI path
+            self.handle_error(str(exc))
+            return None
+        self.last_result = result
+        self.plots.update_from_result(result)
+        self.dashboard.update_kpis(result["kpis"].as_dict())
+        self._update_notes(result)
+        return result
+
+    def _latest_csv_for_dash(self) -> Path | None:
+        if self.last_batch_csv and self.last_batch_csv.exists():
+            return self.last_batch_csv
+        output_dir = Path(self.current_config.get("simulation", {}).get("output_dir", "outputs"))
+        csv_files = sorted(output_dir.rglob("*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
+        return csv_files[0] if csv_files else None
+
+    def open_tx_sink(self) -> None:
+        result = self._ensure_last_result()
+        if result is None:
+            return
+        if not HAVE_GNURADIO:
+            self.handle_error("GNU Radio QT sinks are not available in the current environment.")
+            return
+        window = TxSinkWindow(result["tx"].waveform, result["tx"].metadata.sample_rate, parent=self)
+        window.show()
+        self.gr_windows.append(window)
+        self.dashboard.append_log("Opened GNU Radio TX sink window.")
+
+    def open_rx_sink(self) -> None:
+        result = self._ensure_last_result()
+        if result is None:
+            return
+        if not HAVE_GNURADIO:
+            self.handle_error("GNU Radio QT sinks are not available in the current environment.")
+            return
+        window = RxSinkWindow(result["rx_waveform"], result["tx"].metadata.sample_rate, parent=self)
+        window.show()
+        self.gr_windows.append(window)
+        self.dashboard.append_log("Opened GNU Radio RX sink window.")
+
+    def open_dash_dashboard(self) -> None:
+        if importlib.util.find_spec("dash") is None or importlib.util.find_spec("plotly") is None:
+            self.handle_error("Dash and Plotly are not installed in the active Python environment.")
+            return
+        csv_path = self._latest_csv_for_dash()
+        if csv_path is None:
+            self.handle_error("No batch CSV is available. Run a batch experiment first.")
+            return
+        if self.dash_process and self.dash_process.poll() is None:
+            webbrowser.open("http://127.0.0.1:8050", new=2)
+            self.dashboard.append_log("Dash server is already running. Opened browser.")
+            return
+        command = [
+            sys.executable,
+            "-m",
+            "gui.dash_app",
+            "--csv",
+            str(csv_path.resolve()),
+            "--title",
+            "5G NR PHY STL Batch Dashboard",
+            "--open-browser",
+        ]
+        self.dash_process = subprocess.Popen(command, cwd=str(Path(__file__).resolve().parent.parent))
+        self.dashboard.append_log(f"Started Dash dashboard for {csv_path.name}.")
 
     def handle_result(self, result: object) -> None:
         if isinstance(result, dict) and "tx" in result:
+            self.last_result = result
             self.plots.update_from_result(result)
             self.dashboard.update_kpis(result["kpis"].as_dict())
+            self._update_notes(result)
+            channel_state = result.get("channel_state", {})
+            if channel_state.get("gnu_radio_requested") and not channel_state.get("gnu_radio_used"):
+                self.dashboard.append_log("GNU Radio loopback request fell back to the Python-only channel path.")
             self.dashboard.append_log("Single-link simulation completed.")
         elif isinstance(result, dict) and "dataframe" in result:
             dataframe = result["dataframe"]
-            self.dashboard.append_log(f"Batch experiment completed with {len(dataframe)} points.")
-            self.dashboard.update_kpis({"rows": len(dataframe), "min_ber": float(dataframe['ber'].min()), "max_ber": float(dataframe['ber'].max())})
+            experiment_name = str(result.get("experiment_name", "batch"))
+            self.last_batch_dataframe = dataframe
+            csv_path = self._persist_batch_dataframe(dataframe, experiment_name=experiment_name)
+            self.plots.update_batch_result(dataframe, experiment_name)
+            self._update_notes()
+            self.dashboard.append_log(f"Batch experiment completed with {len(dataframe)} points. CSV saved to {csv_path}.")
+            summary = {"rows": len(dataframe)}
+            for metric in ["ber", "bler", "evm", "throughput_bps"]:
+                if metric in dataframe.columns:
+                    summary[f"min_{metric}"] = float(dataframe[metric].min())
+                    summary[f"max_{metric}"] = float(dataframe[metric].max())
+            self.dashboard.update_kpis(summary)
 
     def handle_error(self, message: str) -> None:
         self.dashboard.append_log(f"Error: {message}")
         QMessageBox.critical(self, "Simulation error", message)
+
+    def closeEvent(self, event) -> None:  # pragma: no cover - GUI path
+        for window in list(self.gr_windows):
+            try:
+                window.close()
+            except Exception:
+                pass
+        self.gr_windows.clear()
+        if self.dash_process and self.dash_process.poll() is None:
+            self.dash_process.terminate()
+            try:
+                self.dash_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.dash_process.kill()
+        super().closeEvent(event)
 
 
 def launch_app(config: dict) -> None:

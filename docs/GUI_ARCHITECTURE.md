@@ -222,11 +222,28 @@ Primary elements:
 
 The current GUI patch upgrades the central plot workspace to a `PyQtGraph`-based PHY dashboard and provides:
 
-- pre/post/reference constellation overlay
-- received waveform view
-- received spectrum view
-- TX resource-grid allocation map
-- estimated channel magnitude heatmap
-- channel impulse response plot
+- `Signal Domain` tab
+  - pre/post/reference constellation overlay
+  - TX/RX waveform overlay
+  - TX/RX spectrum overlay
+  - RX waterfall
+- `Resource Grid` tab
+  - TX allocation map with DMRS highlighting
+  - TX grid magnitude
+  - RX grid magnitude
+  - estimated channel magnitude heatmap
+- `Channel / Sync / EQ` tab
+  - channel impulse response
+  - average channel frequency response
+  - approximate equalizer gain
+  - sync summary
+  - EVM by OFDM symbol
+  - relative error by subcarrier
+- `Batch Analytics` tab
+  - embedded Matplotlib analytics for batch runs
+- auxiliary tools
+  - GNU Radio TX/RX QT sink launchers
+  - Dash launcher for browser-based batch dashboards
+  - warnings / assumptions panel in the dashboard
 
-This is not the final GUI architecture, but it is the correct direction for a 5G PHY workbench.
+This is still not a final conformance-grade PHY workbench, but it is now aligned with the recommended GUI direction in this document.

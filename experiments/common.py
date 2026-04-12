@@ -63,6 +63,8 @@ def simulate_link(config: Dict, channel_type: str | None = None) -> Dict:
         seed=simulation_seed + 123,
     )
 
+    gnuradio_requested = use_gnuradio
+    gnuradio_error: str | None = None
     if use_gnuradio:
         try:
             from grc.end_to_end_flowgraph import EndToEndFlowgraph
@@ -82,7 +84,8 @@ def simulate_link(config: Dict, channel_type: str | None = None) -> Dict:
                 sample_rate=tx_result.metadata.sample_rate,
             )
             awgn_result = type("AwgnProxy", (), {"noise_variance": noise_variance})()
-        except Exception:
+        except Exception as exc:
+            gnuradio_error = str(exc)
             use_gnuradio = False
 
     if not use_gnuradio:
@@ -101,6 +104,10 @@ def simulate_link(config: Dict, channel_type: str | None = None) -> Dict:
         "sto_samples": int(config.get("channel", {}).get("sto_samples", 0)),
         "reference_channel_grid": _reference_channel_grid(tx_result.metadata, fading_response),
         "impulse_response": impulse_response,
+        "fading_model": fading_model,
+        "gnu_radio_requested": gnuradio_requested,
+        "gnu_radio_used": use_gnuradio,
+        "gnu_radio_error": gnuradio_error,
     }
     rx_result = receiver.receive(rx_waveform, tx_result.metadata, channel_state=channel_state)
     return {

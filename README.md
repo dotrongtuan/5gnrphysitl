@@ -1,6 +1,6 @@
 # 5G NR PHY STL Research Platform
 
-Software-in-the-loop, software-only prototype for a 5G NR-inspired PHY link simulator built with Python, GNU Radio integration hooks, NumPy/SciPy, Matplotlib, PyQtGraph, and PyQt5.
+Software-in-the-loop, software-only prototype for a 5G NR-inspired PHY link simulator built with Python, GNU Radio integration hooks, NumPy/SciPy, Matplotlib, PyQtGraph, Dash, and PyQt5.
 
 This codebase targets research, teaching, quick what-if studies, and progressive expansion toward a richer NR PHY platform. It intentionally prioritizes a clean architecture and runnable end-to-end prototype over full 3GPP compliance.
 
@@ -142,18 +142,18 @@ pip install -r requirements.txt
 
 ### 3. Verify GUI dependencies
 
-The current GUI uses both `PyQt5` and `pyqtgraph`.
+The current GUI uses `PyQt5`, `pyqtgraph`, `matplotlib`, and `dash`.
 
 Windows PowerShell:
 
 ```powershell
-python -c "import PyQt5, pyqtgraph; print('GUI deps OK')"
+python -c "import PyQt5, pyqtgraph, matplotlib, dash, plotly; print('GUI deps OK')"
 ```
 
 Ubuntu/macOS:
 
 ```bash
-python -c "import PyQt5, pyqtgraph; print('GUI deps OK')"
+python -c "import PyQt5, pyqtgraph, matplotlib, dash, plotly; print('GUI deps OK')"
 ```
 
 If you are not activating `.venv`, use the local interpreter path instead.
@@ -190,14 +190,33 @@ Windows PowerShell without activation:
 
 The current runtime plot workspace includes:
 
-- `Constellation: pre/post/reference`
-- `RX waveform (time domain)`
-- `RX spectrum`
-- `TX resource-grid allocation`
-- `Estimated channel magnitude`
-- `Channel impulse response`
+- `Signal Domain` tab
+  - reference / pre-EQ / post-EQ constellation
+  - TX/RX waveform overlay
+  - TX/RX spectrum overlay
+  - RX waterfall
+- `Resource Grid` tab
+  - TX allocation map with DMRS highlighting
+  - TX grid magnitude
+  - RX grid magnitude
+  - estimated channel magnitude
+- `Channel / Sync / EQ` tab
+  - channel impulse response
+  - average channel frequency response
+  - approximate equalizer gain
+  - sync / impairment summary
+  - EVM by OFDM symbol
+  - relative error by subcarrier
+- `Batch Analytics` tab
+  - embedded Matplotlib views for sweep results
 
-Configuration controls remain on the left, and KPI/log panels remain on the right.
+Auxiliary instrumentation from the control panel:
+
+- `TX sink` opens GNU Radio QT time/frequency/waterfall sinks when GNU Radio is installed
+- `RX sink` opens GNU Radio QT time/constellation/frequency/waterfall sinks when GNU Radio is installed
+- `Open Dash` launches a browser-based batch analytics dashboard from the latest batch CSV
+
+Configuration controls remain on the left, and KPI / warnings / logs remain on the right.
 
 ### 7. Run common scenarios
 
@@ -278,6 +297,50 @@ pip install -r requirements.txt
 
 ```bash
 pip install -r requirements.txt
+```
+
+`ModuleNotFoundError: No module named 'dash'` or `No module named 'plotly'`
+
+- Batch analytics dependencies are missing from the active environment.
+- Fix:
+
+```bash
+pip install -r requirements.txt
+```
+
+`ERROR: Could not open requirements file: [Errno 2] No such file or directory: 'requirements.txt'`
+
+- You are not running the command from the project root directory.
+- PowerShell is looking for `requirements.txt` in the current directory, and it is not there.
+
+Check the current directory:
+
+```powershell
+Get-Location
+```
+
+Move to the project root:
+
+```powershell
+cd D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl
+```
+
+Verify the file exists:
+
+```powershell
+Test-Path .\requirements.txt
+```
+
+Then rerun:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+If you do not want to rely on the current directory, use an absolute path:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl\requirements.txt
 ```
 
 `run_*.bat` is not recognized in PowerShell
@@ -727,7 +790,10 @@ The dashboard supports:
 - Channel and impairment controls.
 - Run, stop, reset, save/load config, and batch experiment buttons.
 - Real-time plot areas for constellation, waveform, spectrum, TX resource-grid allocation, impulse response, and estimated channel.
-- KPI table and log pane.
+- Batch analytics tab rendered with embedded Matplotlib.
+- Dash launcher for browser-based analytics.
+- GNU Radio TX/RX sink launchers for QT instrumentation when GNU Radio is installed.
+- KPI table, warnings/assumptions panel, and log pane.
 
 ## 9. Batch Experiments
 
