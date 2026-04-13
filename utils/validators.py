@@ -27,4 +27,10 @@ def validate_config(config: dict) -> dict:
         if int(spatial.get(key, 1)) < 1:
             raise ValueError(f"spatial.{key} must be at least 1.")
 
+    coding = config.get("coding", {})
+    if int(coding.get("code_block_payload_bits", 1)) < 1:
+        raise ValueError("coding.code_block_payload_bits must be at least 1.")
+    if str(coding.get("code_block_crc", "crc8")) not in {"crc8", "crc16"}:
+        raise ValueError("coding.code_block_crc must be one of: crc8, crc16.")
+
     return config

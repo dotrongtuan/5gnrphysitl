@@ -48,8 +48,10 @@ control_channel:
 coding:
   scheme: ldpc_inspired
   crc: crc16
+  code_block_crc: crc8
   control_crc: crc8
   target_rate: 0.5
+  code_block_payload_bits: 320
   control_rate: 0.25
   redundancy_version: 0
 

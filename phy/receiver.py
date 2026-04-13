@@ -45,6 +45,10 @@ class RxResult:
     descrambled_llrs: np.ndarray
     rate_recovered_llrs: np.ndarray
     decoder_input_llrs: np.ndarray
+    rate_recovered_code_blocks: tuple[np.ndarray, ...]
+    decoder_input_code_blocks: tuple[np.ndarray, ...]
+    recovered_code_blocks: tuple[np.ndarray, ...]
+    code_block_crc_ok: tuple[bool, ...]
     timing_offset: int
     cfo_estimate_hz: float
     kpis: LinkKpiSummary
@@ -154,7 +158,32 @@ class NrReceiver:
         decoder_input_llrs = rate_recovered_llrs.copy()
 
         coder = build_channel_coder(channel_type=tx_metadata.channel_type, config=self.config)
-        recovered_bits, crc_ok = coder.decode(descrambled_llrs, tx_metadata.coding_metadata)
+        if hasattr(coder, "decode_with_trace"):
+            recovered_bits, crc_ok, decode_trace = coder.decode_with_trace(descrambled_llrs, tx_metadata.coding_metadata)
+        else:  # pragma: no cover
+            recovered_bits, crc_ok = coder.decode(descrambled_llrs, tx_metadata.coding_metadata)
+            decode_trace = None
+
+        if decode_trace is not None:
+            rate_recovered_llrs = (
+                np.concatenate(decode_trace.rate_recovered_blocks)
+                if decode_trace.rate_recovered_blocks
+                else np.array([], dtype=np.float64)
+            )
+            decoder_input_llrs = (
+                np.concatenate(decode_trace.decoder_input_blocks)
+                if decode_trace.decoder_input_blocks
+                else np.array([], dtype=np.float64)
+            )
+            rate_recovered_code_blocks = tuple(block.copy() for block in decode_trace.rate_recovered_blocks)
+            decoder_input_code_blocks = tuple(block.copy() for block in decode_trace.decoder_input_blocks)
+            recovered_code_blocks = tuple(block.copy() for block in decode_trace.recovered_code_blocks)
+            code_block_crc_ok = tuple(bool(value) for value in decode_trace.code_block_crc_ok)
+        else:
+            rate_recovered_code_blocks = ()
+            decoder_input_code_blocks = ()
+            recovered_code_blocks = ()
+            code_block_crc_ok = ()
 
         reference_symbols = tx_metadata.tx_grid[positions[:, 0], positions[:, 1]]
         ber = bit_error_rate(tx_metadata.payload_bits, recovered_bits)
@@ -220,6 +249,10 @@ class NrReceiver:
             descrambled_llrs=descrambled_llrs,
             rate_recovered_llrs=rate_recovered_llrs,
             decoder_input_llrs=decoder_input_llrs,
+            rate_recovered_code_blocks=rate_recovered_code_blocks,
+            decoder_input_code_blocks=decoder_input_code_blocks,
+            recovered_code_blocks=recovered_code_blocks,
+            code_block_crc_ok=code_block_crc_ok,
             timing_offset=timing_offset,
             cfo_estimate_hz=cfo_estimate_hz,
             kpis=kpis,

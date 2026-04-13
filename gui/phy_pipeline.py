@@ -69,7 +69,7 @@ class PhyPipelinePanel(QWidget):
         self.overview_label.setTextFormat(Qt.RichText)
         self.overview_label.setText(
             "<b>Interactive PHY Flow Explorer</b><br>"
-            "Bits -> CRC -> Coding -> Rate Matching -> Scrambling -> QAM Mapping -> Resource Grid + DMRS -> "
+            "Bits -> TB CRC -> Segmentation + CB CRC -> Coding -> Rate Matching -> Scrambling -> QAM Mapping -> Resource Grid + DMRS -> "
             "OFDM/IFFT + CP -> Channel/Impairments -> Sync -> FFT -> Channel Estimation -> Equalization -> "
             "Demapping -> Decoding -> CRC Check"
         )
@@ -879,7 +879,16 @@ class PhyPipelinePanel(QWidget):
         coding_meta = tx_meta.coding_metadata
         numerology = tx_meta.numerology
         positions = tx_meta.mapping.positions
-        payload_with_crc = attach_crc(tx_meta.payload_bits, coding_meta.crc_type)
+        payload_with_crc = (
+            np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
+            if coding_meta.transport_block_with_crc is not None
+            else attach_crc(tx_meta.payload_bits, coding_meta.crc_type)
+        )
+        code_blocks_with_crc = (
+            np.concatenate(coding_meta.code_blocks_with_crc)
+            if coding_meta.code_blocks_with_crc
+            else payload_with_crc
+        )
         mother_bits = self._mother_bits(tx_meta)
         allocation_map, dmrs_mask = self._allocation_maps(result)
         tx_spectrum = self._spectrum_payload(tx.waveform, tx_meta.sample_rate)
@@ -915,6 +924,7 @@ class PhyPipelinePanel(QWidget):
         stages = self._stage_definitions(
             result=result,
             payload_with_crc=payload_with_crc,
+            code_blocks_with_crc=code_blocks_with_crc,
             mother_bits=mother_bits,
             allocation_map=allocation_map,
             dmrs_mask=dmrs_mask,
@@ -950,6 +960,7 @@ class PhyPipelinePanel(QWidget):
         *,
         result: dict[str, Any],
         payload_with_crc: np.ndarray,
+        code_blocks_with_crc: np.ndarray,
         mother_bits: np.ndarray,
         allocation_map: np.ndarray,
         dmrs_mask: np.ndarray,
@@ -1004,27 +1015,55 @@ class PhyPipelinePanel(QWidget):
             {
                 "key": "crc_attach",
                 "section": "TX",
-                "flow_label": "CRC",
-                "title": "CRC Attachment",
-                "description": "CRC is appended to the payload before channel coding to enable block-level error detection.",
+                "flow_label": "TB CRC",
+                "title": "Transport-Block CRC Attachment",
+                "description": "Transport-block CRC is appended before segmentation and channel coding to enable end-to-end error detection.",
                 "metrics": {
-                    "CRC type": coding_meta.crc_type,
+                    "TB CRC type": coding_meta.crc_type,
                     "Payload bits": tx_meta.payload_bits.size,
-                    "Payload + CRC": payload_with_crc.size,
+                    "Transport block + CRC": payload_with_crc.size,
                     "CRC bits added": payload_with_crc.size - tx_meta.payload_bits.size,
                 },
-                "artifacts": [{"name": "Payload + CRC", "kind": "bits", "payload": payload_with_crc, "description": "Bitstream after CRC attachment."}],
+                "artifacts": [{"name": "Transport block + CRC", "kind": "bits", "payload": payload_with_crc, "description": "Bitstream after transport-block CRC attachment."}],
+            },
+            {
+                "key": "segmentation",
+                "section": "TX",
+                "flow_label": "Segment",
+                "title": "Code Block Segmentation + CB CRC",
+                "description": "The protected transport block is segmented into code blocks. When more than one block is required, each block receives its own CRC before coding.",
+                "metrics": {
+                    "Code block count": coding_meta.code_block_count,
+                    "CB CRC type": coding_meta.code_block_crc_type or "not applied",
+                    "Block payload lengths": ", ".join(str(int(length)) for length in coding_meta.code_block_payload_lengths) or "n/a",
+                    "Block + CB CRC lengths": ", ".join(str(int(length)) for length in coding_meta.code_block_with_crc_lengths) or "n/a",
+                },
+                "artifacts": [
+                    {
+                        "name": "Code block summary",
+                        "kind": "text",
+                        "payload": self._code_block_summary_text(coding_meta),
+                        "description": "Block-by-block summary after segmentation and code-block CRC attachment.",
+                    },
+                    {
+                        "name": "Code blocks with CRC",
+                        "kind": "bits",
+                        "payload": code_blocks_with_crc,
+                        "description": "Concatenated code blocks after per-block CRC attachment.",
+                    },
+                ],
             },
             {
                 "key": "coding",
                 "section": "TX",
                 "flow_label": "Coding",
                 "title": "Channel Coding",
-                "description": "Simplified NR-inspired channel coding expands the protected bitstream into a mother codeword.",
+                "description": "Simplified NR-inspired channel coding expands each code block into one mother-codeword segment.",
                 "metrics": {
                     "Coder": code_stage,
                     "Mother length": coding_meta.mother_length,
-                    "Payload + CRC": payload_with_crc.size,
+                    "Code blocks": coding_meta.code_block_count,
+                    "Mother block lengths": ", ".join(str(int(length)) for length in coding_meta.mother_block_lengths) or "n/a",
                     "Repetition factor": coding_meta.repetition_factor,
                 },
                 "artifacts": [{"name": "Mother codeword", "kind": "bits", "payload": mother_bits, "description": "Mother codeword before rate matching."}],
@@ -1300,9 +1339,11 @@ class PhyPipelinePanel(QWidget):
                     "Mother length": coding_meta.mother_length,
                     "Redundancy version": coding_meta.redundancy_version,
                     "Recovered LLR count": rx.rate_recovered_llrs.size,
+                    "Recovered blocks": len(rx.rate_recovered_code_blocks),
                 },
                 "artifacts": [
                     {"name": "Rate-recovered LLR trace", "kind": "line", "payload": {"x": np.arange(min(rx.rate_recovered_llrs.size, 256)), "y": rx.rate_recovered_llrs[:256], "x_label": "Mother-code index", "y_label": "Recovered LLR"}, "description": "LLRs after inverse rate matching."},
+                    {"name": "Rate-recovered block summary", "kind": "text", "payload": self._llr_block_summary_text(rx.rate_recovered_code_blocks, "Rate-recovered blocks"), "description": "Per-code-block LLR sizes after inverse rate matching."},
                 ],
             },
             {
@@ -1316,10 +1357,12 @@ class PhyPipelinePanel(QWidget):
                     "Mean |LLR|": f"{float(np.mean(np.abs(rx.decoder_input_llrs))):.4g}",
                     "Min LLR": f"{float(np.min(rx.decoder_input_llrs)):.4g}",
                     "Max LLR": f"{float(np.max(rx.decoder_input_llrs)):.4g}",
+                    "Decoder-input blocks": len(rx.decoder_input_code_blocks),
                 },
                 "artifacts": [
                     {"name": "Decoder-input LLR trace", "kind": "line", "payload": {"x": np.arange(min(rx.decoder_input_llrs.size, 256)), "y": rx.decoder_input_llrs[:256], "x_label": "Decoder input index", "y_label": "LLR"}, "description": "Soft LLR sequence consumed by the channel decoder."},
                     {"name": "Decoder-input LLR histogram", "kind": "histogram", "payload": decoder_input_llr_histogram, "description": "Histogram of the decoder-input soft LLRs."},
+                    {"name": "Decoder-input block summary", "kind": "text", "payload": self._llr_block_summary_text(rx.decoder_input_code_blocks, "Decoder-input blocks"), "description": "Per-code-block LLR sizes before hard decoding."},
                 ],
             },
             {
@@ -1333,10 +1376,12 @@ class PhyPipelinePanel(QWidget):
                     "Bit errors": int(np.sum(bit_error_mask)),
                     "BER": f"{rx.kpis.ber:.4g}",
                     "BLER": f"{rx.kpis.bler:.4g}",
+                    "CB CRC pass count": f"{sum(bool(value) for value in rx.code_block_crc_ok)} / {len(rx.code_block_crc_ok) or 1}",
                 },
                 "artifacts": [
                     {"name": "Recovered bits", "kind": "bits", "payload": rx.recovered_bits, "description": "Recovered payload bits after channel decoding."},
                     {"name": "Bit error mask", "kind": "bits", "payload": bit_error_mask, "description": "Error mask against the transmitted payload bits. A '1' marks a bit error."},
+                    {"name": "Code block CRC summary", "kind": "text", "payload": self._code_block_crc_status_text(rx.code_block_crc_ok), "description": "Per-code-block CRC decisions during decoding."},
                 ],
             },
             {
@@ -1427,7 +1472,13 @@ class PhyPipelinePanel(QWidget):
     @staticmethod
     def _mother_bits(tx_meta) -> np.ndarray:
         coding_meta = tx_meta.coding_metadata
-        payload_with_crc = attach_crc(tx_meta.payload_bits, coding_meta.crc_type)
+        if coding_meta.mother_code_blocks:
+            return np.concatenate(coding_meta.mother_code_blocks).astype(np.uint8)
+        payload_with_crc = (
+            np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
+            if coding_meta.transport_block_with_crc is not None
+            else attach_crc(tx_meta.payload_bits, coding_meta.crc_type)
+        )
         if tx_meta.channel_type in {"control", "pdcch", "pbch"}:
             polar_length = int(coding_meta.polar_length or payload_with_crc.size)
             info_positions = np.asarray(coding_meta.info_positions)
@@ -1439,6 +1490,39 @@ class PhyPipelinePanel(QWidget):
         if coding_meta.interleaver is not None:
             mother = mother[np.asarray(coding_meta.interleaver)]
         return mother.astype(np.uint8)
+
+    @staticmethod
+    def _code_block_summary_text(coding_meta) -> str:
+        lines = [
+            f"Code blocks: {int(coding_meta.code_block_count)}",
+            f"TB CRC type: {coding_meta.crc_type}",
+            f"CB CRC type: {coding_meta.code_block_crc_type or 'not applied'}",
+        ]
+        for index in range(int(coding_meta.code_block_count)):
+            payload_length = int(coding_meta.code_block_payload_lengths[index]) if index < len(coding_meta.code_block_payload_lengths) else 0
+            with_crc_length = int(coding_meta.code_block_with_crc_lengths[index]) if index < len(coding_meta.code_block_with_crc_lengths) else payload_length
+            mother_length = int(coding_meta.mother_block_lengths[index]) if index < len(coding_meta.mother_block_lengths) else with_crc_length
+            lines.append(
+                f"CB{index}: payload={payload_length} bits, with_crc={with_crc_length} bits, mother={mother_length} bits"
+            )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _llr_block_summary_text(blocks: tuple[np.ndarray, ...], title: str) -> str:
+        if not blocks:
+            return f"{title}: no block structure available"
+        lines = [title]
+        for index, block in enumerate(blocks):
+            view = np.asarray(block)
+            mean_abs = float(np.mean(np.abs(view))) if view.size else 0.0
+            lines.append(f"CB{index}: length={view.size}, mean|LLR|={mean_abs:.4g}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _code_block_crc_status_text(statuses: tuple[bool, ...]) -> str:
+        if not statuses:
+            return "Single code block path: no separate CB CRC decisions."
+        return "\n".join(f"CB{index}: {'PASS' if bool(status) else 'FAIL'}" for index, status in enumerate(statuses))
 
     @staticmethod
     def _allocation_maps(result: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:

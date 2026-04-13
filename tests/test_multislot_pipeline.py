@@ -38,6 +38,8 @@ def test_simulate_link_sequence_returns_multiple_slots() -> None:
     assert "output_shape" in result["pipeline"][0]
     assert result["slot_context"]["slot_label"] == "Frame 0 / Slot 0"
     stage_names = [stage["stage"] for stage in result["pipeline"]]
+    assert "TB CRC attachment" in stage_names
+    assert "Code block segmentation + CB CRC" in stage_names
     assert "Remove CP" in stage_names
     assert "Resource element extraction" in stage_names
     assert "Rate recovery" in stage_names
@@ -46,7 +48,9 @@ def test_simulate_link_sequence_returns_multiple_slots() -> None:
     assert rx.cp_removed_tensor.shape[1] == config["numerology"]["symbols_per_slot"]
     assert rx.fft_bins_tensor.shape[2] == config["numerology"]["fft_size"]
     assert rx.re_data_positions.shape[0] == rx.re_data_symbols.shape[0]
-    assert rx.rate_recovered_llrs.shape == rx.decoder_input_llrs.shape
+    assert rx.rate_recovered_llrs.size == sum(result["tx"].metadata.coding_metadata.mother_block_lengths)
+    assert rx.decoder_input_llrs.size == sum(result["tx"].metadata.coding_metadata.code_block_with_crc_lengths)
+    assert len(rx.code_block_crc_ok) == result["tx"].metadata.coding_metadata.code_block_count
 
 
 def test_phy_pipeline_panel_uses_multislot_scrubber() -> None:
@@ -77,7 +81,7 @@ def test_phy_pipeline_panel_uses_multislot_scrubber() -> None:
     assert panel.stages[0]["artifact_type"] == "bits"
     assert "Input shape" in panel.stages[0]["metrics"]
     stage_keys = {stage["key"] for stage in panel.stages}
-    assert {"remove_cp", "re_extraction", "rate_recovery", "soft_llr"}.issubset(stage_keys)
+    assert {"segmentation", "remove_cp", "re_extraction", "rate_recovery", "soft_llr"}.issubset(stage_keys)
     panel.deleteLater()
     app.processEvents()
 

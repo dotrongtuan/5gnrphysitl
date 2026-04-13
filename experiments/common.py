@@ -197,6 +197,22 @@ def _build_pipeline_trace(
 ) -> list[Dict]:
     tx_meta = tx_result.metadata
     rx_meta = rx_result
+    coding_meta = tx_meta.coding_metadata
+    transport_with_crc = (
+        np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
+        if coding_meta.transport_block_with_crc is not None
+        else tx_meta.coded_bits
+    )
+    code_blocks_with_crc = (
+        np.concatenate(coding_meta.code_blocks_with_crc)
+        if coding_meta.code_blocks_with_crc
+        else transport_with_crc
+    )
+    mother_bits = (
+        np.concatenate(coding_meta.mother_code_blocks)
+        if coding_meta.mother_code_blocks
+        else tx_meta.coded_bits
+    )
 
     gnuradio_used = bool(channel_state.get("gnu_radio_used", False))
     channel_stage_name = "GNU Radio loopback output" if gnuradio_used else "Fading / path loss / Doppler output"
@@ -221,13 +237,46 @@ def _build_pipeline_trace(
         },
         {
             "section": "TX",
-            "stage": "CRC + channel coding",
+            "stage": "TB CRC attachment",
             "domain": "bits",
-            "description": "Coded bitstream after CRC attachment and simplified data/control channel coding.",
+            "description": "Transport-block CRC is appended before segmentation and channel coding.",
+            "preview_kind": "bits",
+            "data": transport_with_crc,
+            "artifact_type": "bits",
+            "input_shape": [int(dim) for dim in np.asarray(tx_meta.payload_bits).shape],
+            "output_shape": [int(dim) for dim in np.asarray(transport_with_crc).shape],
+        },
+        {
+            "section": "TX",
+            "stage": "Code block segmentation + CB CRC",
+            "domain": "bits",
+            "description": "The transport block is segmented into code blocks, and each block receives its own CRC when multiple blocks are present.",
+            "preview_kind": "bits",
+            "data": code_blocks_with_crc,
+            "artifact_type": "bits",
+            "input_shape": [int(dim) for dim in np.asarray(transport_with_crc).shape],
+            "output_shape": [int(dim) for dim in np.asarray(code_blocks_with_crc).shape],
+        },
+        {
+            "section": "TX",
+            "stage": "Channel coding",
+            "domain": "bits",
+            "description": "Simplified NR-inspired coding expands each code block into a mother-codeword segment.",
+            "preview_kind": "bits",
+            "data": mother_bits,
+            "artifact_type": "bits",
+            "input_shape": [int(dim) for dim in np.asarray(code_blocks_with_crc).shape],
+            "output_shape": [int(dim) for dim in np.asarray(mother_bits).shape],
+        },
+        {
+            "section": "TX",
+            "stage": "Rate matching",
+            "domain": "bits",
+            "description": "Mother-codeword segments are rate-matched onto the scheduled RE capacity.",
             "preview_kind": "bits",
             "data": tx_meta.coded_bits,
             "artifact_type": "bits",
-            "input_shape": [int(dim) for dim in np.asarray(tx_meta.payload_bits).shape],
+            "input_shape": [int(dim) for dim in np.asarray(mother_bits).shape],
             "output_shape": [int(dim) for dim in np.asarray(tx_meta.coded_bits).shape],
         },
         {
