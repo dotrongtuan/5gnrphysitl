@@ -12,14 +12,17 @@ from .numerology import NumerologyConfig
 from .resource_grid import ChannelMapping, ResourceGrid
 from .scrambling import scramble_bits
 from .types import SpatialLayout
+from .uplink import apply_transform_precoding
 
 
 @dataclass(slots=True)
 class TxMetadata:
+    direction: str
     channel_type: str
     numerology: NumerologyConfig
     allocation: FrameAllocation
     spatial_layout: SpatialLayout
+    transform_precoding_enabled: bool
     payload_bits: np.ndarray
     coded_bits: np.ndarray
     scrambled_bits: np.ndarray
@@ -30,6 +33,7 @@ class TxMetadata:
     mapping: ChannelMapping
     dmrs: Dict[str, np.ndarray]
     tensor_view_specs: Dict[str, Dict[str, object]]
+    modulation_symbols: np.ndarray
     tx_layer_grid: np.ndarray
     tx_port_grid: np.ndarray
     tx_grid_data: np.ndarray
@@ -80,7 +84,14 @@ class NrTransmitter:
 
     def transmit(self, channel_type: str = "data", payload_bits: np.ndarray | None = None) -> TxResult:
         channel_type = channel_type.lower()
+        direction = str(self.config.get("link", {}).get("direction", "downlink")).lower()
+        if direction not in {"downlink", "uplink"}:
+            raise ValueError(f"Unsupported link.direction: {direction}")
+        if direction == "uplink" and channel_type in {"control", "pucch"}:
+            raise NotImplementedError("Uplink control-channel mapping is not implemented yet. Use data/PUSCH baseline.")
+
         payload = np.asarray(payload_bits, dtype=np.uint8) if payload_bits is not None else self._generate_payload(channel_type)
+        transform_precoding_enabled = bool(self.config.get("uplink", {}).get("transform_precoding", False)) and direction == "uplink" and channel_type in {"data", "pusch"}
 
         modulation_name = str(
             self.config.get("modulation", {}).get(
@@ -97,6 +108,7 @@ class NrTransmitter:
             channel_type=channel_type,
             bits_per_symbol=bits_per_symbol(modulation_name),
             modulation=modulation_name,
+            direction=direction,
         )
 
         coder = build_channel_coder(channel_type=channel_type, config=self.config)
@@ -108,7 +120,8 @@ class NrTransmitter:
             rnti=int(scrambling_cfg.get("rnti", 0x1234)),
             q=0 if channel_type in {"data", "pdsch"} else 1,
         )
-        tx_symbols = mapper.map_bits(scrambled_bits)
+        modulation_symbols = mapper.map_bits(scrambled_bits)
+        tx_symbols = apply_transform_precoding(modulation_symbols) if transform_precoding_enabled else modulation_symbols.copy()
         grid.map_symbols(tx_symbols, mapping.positions)
         tx_grid_data = grid.grid.copy()
         dmrs = grid.insert_dmrs(slot=0)
@@ -118,10 +131,12 @@ class NrTransmitter:
         return TxResult(
             waveform=waveform,
             metadata=TxMetadata(
+                direction=direction,
                 channel_type=channel_type,
                 numerology=self.numerology,
                 allocation=self.allocation,
                 spatial_layout=self.spatial_layout,
+                transform_precoding_enabled=transform_precoding_enabled,
                 payload_bits=payload,
                 coded_bits=coded_bits,
                 scrambled_bits=scrambled_bits,
@@ -132,6 +147,7 @@ class NrTransmitter:
                 mapping=mapping,
                 dmrs=dmrs,
                 tensor_view_specs=grid.tensor_view_specs_as_dict(),
+                modulation_symbols=modulation_symbols,
                 tx_layer_grid=grid.layer_grid.copy(),
                 tx_port_grid=grid.port_grid.copy(),
                 tx_grid_data=tx_grid_data,

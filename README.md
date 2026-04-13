@@ -1474,6 +1474,24 @@ What to do:
 python main.py --config configs/default.yaml
 ```
 
+### Run uplink baseline from CLI
+
+The project now includes a minimal uplink baseline for `data` traffic with direction-aware `PUSCH-style` mapping.
+
+Run plain CP-OFDM uplink:
+
+```bash
+python main.py --config configs/default.yaml --direction uplink
+```
+
+To inspect a DFT-s-OFDM style chain, set `uplink.transform_precoding: true` in config or enable `Transform precoding` in the GUI.
+
+Ready-made uplink baseline scenario:
+
+```bash
+python main.py --config configs/default.yaml --override configs/scenario_uplink_baseline.yaml --gui
+```
+
 ### Launch GUI
 
 ```bash
@@ -1581,6 +1599,7 @@ python main.py --config configs/default.yaml --override configs/scenario_vehicul
 - Data-channel coding is LDPC-inspired, not standards-compliant QC-LDPC.
 - Control-channel coding is polar-like and small-block focused, not full NR polar coding.
 - Resource allocation is slot-local and simplified; there is no full scheduler/DCI implementation.
+- Uplink support currently covers a `data` / `PUSCH-style` baseline only.
 - DMRS patterns are NR-inspired but simplified.
 - Synchronization and CFO recovery are intentionally lightweight.
 - Fading, Doppler, phase noise, and IQ imbalance models are suitable for study/prototyping, not conformance.

@@ -69,9 +69,9 @@ class PhyPipelinePanel(QWidget):
         self.overview_label.setTextFormat(Qt.RichText)
         self.overview_label.setText(
             "<b>Interactive PHY Flow Explorer</b><br>"
-            "Bits -> TB CRC -> Segmentation + CB CRC -> Coding -> Rate Matching -> Scrambling -> QAM Mapping -> Resource Grid + DMRS -> "
+            "Bits -> TB CRC -> Segmentation + CB CRC -> Coding -> Rate Matching -> Scrambling -> QAM Mapping -> (Optional UL Transform Precoding) -> Resource Grid + DMRS -> "
             "OFDM/IFFT + CP -> Channel/Impairments -> Sync -> FFT -> Channel Estimation -> Equalization -> "
-            "Demapping -> Decoding -> CRC Check"
+            "(Optional UL Inverse Transform) -> Demapping -> Decoding -> CRC Check"
         )
         layout.addWidget(self.overview_label)
 
@@ -877,6 +877,8 @@ class PhyPipelinePanel(QWidget):
         channel_state = result["channel_state"]
         tx_meta = tx.metadata
         coding_meta = tx_meta.coding_metadata
+        direction = str(getattr(tx_meta, "direction", "downlink")).lower()
+        transform_precoding_enabled = bool(getattr(tx_meta, "transform_precoding_enabled", False))
         numerology = tx_meta.numerology
         positions = tx_meta.mapping.positions
         payload_with_crc = (
@@ -913,9 +915,9 @@ class PhyPipelinePanel(QWidget):
         decoder_input_llr_histogram = self._histogram_payload(rx.decoder_input_llrs)
         bit_error_mask = self._bit_error_mask(tx_meta.payload_bits, rx.recovered_bits)
         kpis = rx.kpis.as_dict()
-        reference_symbols = tx_meta.tx_symbols
+        reference_symbols = tx_meta.modulation_symbols
         pre_eq_symbols = rx.rx_symbols
-        post_eq_symbols = rx.equalized_symbols
+        post_eq_symbols = rx.detected_symbols
         mapping_table = self._mapping_table_text(tx_meta.mapper)
         code_rate = tx_meta.payload_bits.size / max(coding_meta.rate_matched_length, 1)
         code_stage = "Polar-like control coder" if tx_meta.channel_type in {"control", "pdcch", "pbch"} else "LDPC-inspired coder"
@@ -947,6 +949,8 @@ class PhyPipelinePanel(QWidget):
             mapping_table=mapping_table,
             code_rate=code_rate,
             code_stage=code_stage,
+            direction=direction,
+            transform_precoding_enabled=transform_precoding_enabled,
             positions=positions,
             data_re_mask=data_re_mask,
         )
@@ -983,6 +987,8 @@ class PhyPipelinePanel(QWidget):
         mapping_table: str,
         code_rate: float,
         code_stage: str,
+        direction: str,
+        transform_precoding_enabled: bool,
         positions: np.ndarray,
         data_re_mask: np.ndarray,
     ) -> list[dict[str, Any]]:
@@ -997,7 +1003,7 @@ class PhyPipelinePanel(QWidget):
         coding_meta = tx_meta.coding_metadata
         numerology = tx_meta.numerology
 
-        return [
+        stages = [
             {
                 "key": "bits",
                 "section": "TX",
@@ -1108,7 +1114,7 @@ class PhyPipelinePanel(QWidget):
                 "metrics": {
                     "Modulation": tx_meta.modulation,
                     "Bits / symbol": tx_meta.mapper.bits_per_symbol,
-                    "Mapped symbols": tx_meta.tx_symbols.size,
+                    "Mapped symbols": tx_meta.modulation_symbols.size,
                     "Constellation order": 2 ** tx_meta.mapper.bits_per_symbol,
                 },
                 "artifacts": [
@@ -1118,7 +1124,7 @@ class PhyPipelinePanel(QWidget):
                         "payload": {
                             "series": [
                                 {"name": "Mapping table", "points": tx_meta.mapper.constellation, "color": "#f94144"},
-                                {"name": "TX symbols", "points": tx_meta.tx_symbols, "color": "#38bdf8", "symbol_indices": positions[: tx_meta.tx_symbols.size, 0]},
+                                {"name": "TX symbols", "points": tx_meta.modulation_symbols, "color": "#38bdf8", "symbol_indices": positions[: tx_meta.modulation_symbols.size, 0]},
                             ]
                         },
                         "description": "Constellation table and actual TX symbols before the channel.",
@@ -1143,7 +1149,7 @@ class PhyPipelinePanel(QWidget):
                 "section": "TX",
                 "flow_label": "Grid + DMRS",
                 "title": "Resource Grid + DMRS",
-                "description": "Mapped symbols are placed onto the NR-like resource grid. DMRS is inserted on configured OFDM symbols for channel estimation.",
+                "description": f"Mapped {'PUSCH-style' if direction == 'uplink' else 'PDSCH-style'} symbols are placed onto the NR-like resource grid. DMRS is inserted on configured OFDM symbols for channel estimation.",
                 "metrics": {
                     "Grid shape": f"{tx_meta.tx_grid.shape[0]} x {tx_meta.tx_grid.shape[1]}",
                     "Control RE count": int(np.sum(allocation_map == 1)),
@@ -1403,6 +1409,66 @@ class PhyPipelinePanel(QWidget):
             },
         ]
 
+        if transform_precoding_enabled:
+            stages.insert(
+                7,
+                {
+                    "key": "transform_precoding",
+                    "section": "TX",
+                    "flow_label": "DFT Spread",
+                    "title": "Transform Precoding",
+                    "description": "DFT-based transform precoding is applied before uplink resource mapping, producing a DFT-s-OFDM style PUSCH baseline.",
+                    "metrics": {
+                        "Direction": direction,
+                        "Input symbols": tx_meta.modulation_symbols.size,
+                        "Output symbols": tx_meta.tx_symbols.size,
+                    },
+                    "artifacts": [
+                        {
+                            "name": "Pre/post transform constellation",
+                            "kind": "constellation_compare",
+                            "payload": {
+                                "series": [
+                                    {"name": "Mapped QAM", "points": tx_meta.modulation_symbols, "color": "#f94144"},
+                                    {"name": "Transform-precoded", "points": tx_meta.tx_symbols, "color": "#38bdf8"},
+                                ]
+                            },
+                            "description": "Constellation before and after DFT spreading.",
+                        }
+                    ],
+                },
+            )
+            equalization_index = next(index for index, stage in enumerate(stages) if stage["key"] == "equalization")
+            stages.insert(
+                equalization_index + 1,
+                {
+                    "key": "inverse_transform_precoding",
+                    "section": "RX",
+                    "flow_label": "IDFT",
+                    "title": "Inverse Transform Precoding",
+                    "description": "The equalized uplink sequence is de-spread by the inverse DFT before soft demapping.",
+                    "metrics": {
+                        "Input symbols": rx.equalized_symbols.size,
+                        "Output symbols": rx.detected_symbols.size,
+                    },
+                    "artifacts": [
+                        {
+                            "name": "Pre/post inverse transform constellation",
+                            "kind": "constellation_compare",
+                            "payload": {
+                                "series": [
+                                    {"name": "Equalized", "points": rx.equalized_symbols, "color": "#ffffff"},
+                                    {"name": "After inverse transform", "points": rx.detected_symbols, "color": "#38bdf8"},
+                                ]
+                            },
+                            "description": "Equalized PUSCH symbols before and after inverse DFT de-spreading.",
+                        }
+                    ],
+                },
+            )
+
+        return stages
+
     def _file_transfer_entry_stages(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         transfer = result["file_transfer"]
         source_package_bits = np.asarray(result.get("source_package_bits", np.array([], dtype=np.uint8)), dtype=np.uint8)
@@ -1530,8 +1596,9 @@ class PhyPipelinePanel(QWidget):
         numerology = tx_meta.numerology
         allocation_map = np.zeros((numerology.symbols_per_slot, numerology.active_subcarriers), dtype=np.float32)
         allocation = tx_meta.allocation
-        for symbol in allocation.pdcch_symbols:
-            allocation_map[symbol, : allocation.control_subcarriers] = 1.0
+        if str(getattr(tx_meta, "direction", "downlink")).lower() == "downlink":
+            for symbol in allocation.pdcch_symbols:
+                allocation_map[symbol, : allocation.control_subcarriers] = 1.0
         positions = tx_meta.mapping.positions
         if positions.size:
             allocation_map[positions[:, 0], positions[:, 1]] = 2.0

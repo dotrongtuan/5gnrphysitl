@@ -1,0 +1,15 @@
+link:
+  direction: uplink
+  channel_type: data
+
+uplink:
+  transform_precoding: true
+
+channel:
+  model: awgn
+  profile: static_near
+  snr_db: 28.0
+
+receiver:
+  perfect_sync: true
+  perfect_channel_estimation: true

@@ -165,10 +165,12 @@ class NrPhyResearchApp(QMainWindow):
             "TX sink button": "Enabled" if self.controls.buttons["tx_sink"].isEnabled() else "Disabled",
             "RX sink button": "Enabled" if self.controls.buttons["rx_sink"].isEnabled() else "Disabled",
             "Dash / Plotly": "Available" if self._dash_available() else "Unavailable",
+            "Link direction": str(self.current_config.get("link", {}).get("direction", "downlink")),
             "GNU Radio loopback requested": "Yes" if bool(self.current_config.get("simulation", {}).get("use_gnuradio", False)) else "No",
             "Capture slots": int(self.current_config.get("simulation", {}).get("capture_slots", 1)),
             "Perfect sync": "Yes" if bool(self.current_config.get("receiver", {}).get("perfect_sync", False)) else "No",
             "Perfect channel estimation": "Yes" if bool(self.current_config.get("receiver", {}).get("perfect_channel_estimation", False)) else "No",
+            "Transform precoding": "Yes" if bool(self.current_config.get("uplink", {}).get("transform_precoding", False)) else "No",
         }
         tx_file = str(self.current_config.get("payload_io", {}).get("tx_file_path", "")).strip()
         if tx_file:
@@ -205,7 +207,7 @@ class NrPhyResearchApp(QMainWindow):
         simulation = config.get("simulation", {})
 
         notes = [
-            f"Mode: {link.get('channel_type', 'data')} | Modulation: {modulation.get('scheme', 'QPSK')} | "
+            f"Direction: {link.get('direction', 'downlink')} | Mode: {link.get('channel_type', 'data')} | Modulation: {modulation.get('scheme', 'QPSK')} | "
             f"SCS: {numerology.get('scs_khz', 30)} kHz | FFT: {numerology.get('fft_size', 512)}",
             f"Channel: {channel.get('model', 'awgn')} / {channel.get('profile', 'static_near')} | "
             f"SNR: {channel.get('snr_db', 0.0)} dB | Doppler: {channel.get('doppler_hz', 0.0)} Hz",
@@ -218,6 +220,11 @@ class NrPhyResearchApp(QMainWindow):
             notes.append("Perfect synchronization is enabled. This is a teaching simplification.")
         if bool(receiver.get("perfect_channel_estimation", False)):
             notes.append("Perfect channel estimation is enabled. DMRS estimation plots remain useful, but KPI values are optimistic.")
+        if str(link.get("direction", "downlink")).lower() == "uplink":
+            if bool(config.get("uplink", {}).get("transform_precoding", False)):
+                notes.append("Uplink baseline is active with transform precoding enabled. The PHY Pipeline includes transform precoding and inverse transform stages.")
+            else:
+                notes.append("Uplink baseline is active in CP-OFDM mode. Enable transform precoding to inspect a DFT-s-OFDM style PUSCH path.")
         if bool(simulation.get("use_gnuradio", False)):
             if HAVE_GNURADIO:
                 notes.append("GNU Radio loopback is requested and QT sinks can be launched from the GUI.")

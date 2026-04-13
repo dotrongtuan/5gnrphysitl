@@ -81,6 +81,7 @@ class ControlPanel(QWidget):
         form.setVerticalSpacing(6)
 
         self.widgets["mode"] = self._combo(["data", "control", "compare"])
+        self.widgets["direction"] = self._combo(["downlink", "uplink"])
         self.widgets["modulation"] = self._combo(["QPSK", "16QAM", "64QAM", "256QAM"])
         self.widgets["mcs"] = self._spin(0, 27, 9)
         self.widgets["capture_slots"] = self._spin(1, 200, 1)
@@ -120,11 +121,13 @@ class ControlPanel(QWidget):
         self.widgets["iq_imbalance_db"] = self._dspin(0.0, 6.0, 0.0, 0.1, 2)
         self.widgets["perfect_sync"] = QCheckBox()
         self.widgets["perfect_channel_estimation"] = QCheckBox()
+        self.widgets["transform_precoding"] = QCheckBox()
         self.widgets["use_gnuradio"] = QCheckBox("Use GNU Radio loopback")
         tx_file_selector = self._path_selector(key="tx_file_path", browse_label="...")
         rx_dir_selector = self._path_selector(key="rx_output_dir", browse_label="...")
 
         form.addRow("Mode", self.widgets["mode"])
+        form.addRow("Direction", self.widgets["direction"])
         form.addRow("Modulation", self.widgets["modulation"])
         form.addRow("MCS", self.widgets["mcs"])
         form.addRow("Capture slots", self.widgets["capture_slots"])
@@ -146,6 +149,7 @@ class ControlPanel(QWidget):
         form.addRow("IQ imbalance", self.widgets["iq_imbalance_db"])
         form.addRow("Perfect sync", self.widgets["perfect_sync"])
         form.addRow("Perfect CE", self.widgets["perfect_channel_estimation"])
+        form.addRow("Transform precoding", self.widgets["transform_precoding"])
         form.addRow("TX file", tx_file_selector)
         form.addRow("RX output", rx_dir_selector)
         form.addRow("", self.widgets["use_gnuradio"])
@@ -182,6 +186,9 @@ class ControlPanel(QWidget):
         self.buttons["batch"].setToolTip(
             "Run the selected sweep experiment and export CSV/plots/report instead of a single-link snapshot."
         )
+        self.widgets["transform_precoding"].setToolTip(
+            "Enable uplink DFT-s-OFDM style transform precoding for the PUSCH baseline."
+        )
 
         help_label = QLabel(
             "Run: execute once and inspect final results. "
@@ -210,6 +217,7 @@ class ControlPanel(QWidget):
 
     def apply_config(self, config: dict) -> None:
         self.widgets["mode"].setCurrentText(config.get("link", {}).get("channel_type", "data"))
+        self.widgets["direction"].setCurrentText(str(config.get("link", {}).get("direction", "downlink")))
         self.widgets["modulation"].setCurrentText(config.get("modulation", {}).get("scheme", "QPSK"))
         self.widgets["batch_experiment"].setCurrentText(
             str(config.get("experiments", {}).get("default_batch_experiment", "ber_vs_snr"))
@@ -234,6 +242,7 @@ class ControlPanel(QWidget):
         self.widgets["perfect_channel_estimation"].setChecked(
             bool(config.get("receiver", {}).get("perfect_channel_estimation", False))
         )
+        self.widgets["transform_precoding"].setChecked(bool(config.get("uplink", {}).get("transform_precoding", False)))
         self.widgets["tx_file_path"].setText(str(config.get("payload_io", {}).get("tx_file_path", "")))
         self.widgets["rx_output_dir"].setText(str(config.get("payload_io", {}).get("rx_output_dir", "")))
         self.widgets["use_gnuradio"].setChecked(bool(config.get("simulation", {}).get("use_gnuradio", False)))
@@ -241,9 +250,13 @@ class ControlPanel(QWidget):
     def build_patch(self) -> dict:
         mode = self.widgets["mode"].currentText()
         return {
-            "link": {"channel_type": "data" if mode == "compare" else mode},
+            "link": {
+                "channel_type": "data" if mode == "compare" else mode,
+                "direction": self.widgets["direction"].currentText(),
+            },
             "modulation": {"scheme": self.widgets["modulation"].currentText()},
             "coding": {"target_rate": float(self.widgets["target_rate"].value())},
+            "uplink": {"transform_precoding": self.widgets["transform_precoding"].isChecked()},
             "numerology": {
                 "scs_khz": float(self.widgets["scs_khz"].currentText()),
                 "fft_size": int(self.widgets["fft_size"].currentText()),

@@ -10,17 +10,18 @@ from phy.types import SpatialLayout
 
 def test_resource_grid_positions_are_non_empty() -> None:
     numerology = NumerologyConfig(scs_khz=30, fft_size=512, cp_length=36, n_rb=24)
-    config = {"frame": {"control_symbols": 2, "pdsch_start_symbol": 2, "dmrs_symbols": [3, 10]}}
+    config = {"frame": {"control_symbols": 2, "pdsch_start_symbol": 2, "pusch_start_symbol": 2, "dmrs_symbols": [3, 10]}}
     allocation = build_default_allocation(numerology, config)
     grid = ResourceGrid(numerology, allocation)
     assert grid.pdcch_positions().shape[0] > 0
     assert grid.pdsch_positions().shape[0] > 0
+    assert grid.pusch_positions().shape[0] > 0
     assert grid.dmrs_positions().shape[0] > 0
 
 
 def test_resource_grid_exposes_tensor_views_and_preserves_legacy_grid() -> None:
     numerology = NumerologyConfig(scs_khz=30, fft_size=512, cp_length=36, n_rb=24)
-    config = {"frame": {"control_symbols": 2, "pdsch_start_symbol": 2, "dmrs_symbols": [3, 10]}}
+    config = {"frame": {"control_symbols": 2, "pdsch_start_symbol": 2, "pusch_start_symbol": 2, "dmrs_symbols": [3, 10]}}
     allocation = build_default_allocation(numerology, config)
     layout = SpatialLayout(num_layers=2, num_ports=2, num_rx_antennas=2)
     grid = ResourceGrid(numerology, allocation, spatial_layout=layout)

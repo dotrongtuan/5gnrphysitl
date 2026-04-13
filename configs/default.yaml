@@ -13,6 +13,9 @@ link:
   channel_type: data
   compare_mode: false
 
+uplink:
+  transform_precoding: false
+
 carrier:
   center_frequency_hz: 3.5e9
   bandwidth_hz: 1.0e7
@@ -35,6 +38,7 @@ spatial:
 frame:
   control_symbols: 2
   pdsch_start_symbol: 2
+  pusch_start_symbol: 2
   control_subcarriers: 72
   dmrs_symbols: [3, 10]
 

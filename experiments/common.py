@@ -197,6 +197,9 @@ def _build_pipeline_trace(
 ) -> list[Dict]:
     tx_meta = tx_result.metadata
     rx_meta = rx_result
+    direction = str(getattr(tx_meta, "direction", "downlink")).lower()
+    direction_label = "uplink" if direction == "uplink" else "downlink"
+    data_channel_label = "PUSCH-style" if direction == "uplink" else "PDSCH-style"
     coding_meta = tx_meta.coding_metadata
     transport_with_crc = (
         np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
@@ -222,7 +225,7 @@ def _build_pipeline_trace(
         else "Waveform after channel convolution, Doppler rotation, and large-scale loss."
     )
 
-    return _normalize_pipeline([
+    stages = [
         {
             "section": "TX",
             "stage": "Traffic / transport block",
@@ -294,18 +297,18 @@ def _build_pipeline_trace(
             "section": "TX",
             "stage": "Modulation mapping",
             "domain": "symbols",
-            "description": f"Mapped {tx_meta.modulation} symbols before resource-grid placement.",
+            "description": f"Mapped {tx_meta.modulation} symbols before {direction_label} resource mapping.",
             "preview_kind": "constellation",
-            "data": tx_meta.tx_symbols,
+            "data": tx_meta.modulation_symbols,
             "artifact_type": "constellation",
             "input_shape": [int(dim) for dim in np.asarray(tx_meta.scrambled_bits).shape],
-            "output_shape": [int(dim) for dim in np.asarray(tx_meta.tx_symbols).shape],
+            "output_shape": [int(dim) for dim in np.asarray(tx_meta.modulation_symbols).shape],
         },
         {
             "section": "TX",
             "stage": "Resource grid mapping",
             "domain": "grid",
-            "description": "Mapped data/control symbols on the active NR-like resource grid before DMRS insertion.",
+            "description": f"Mapped {data_channel_label} symbols on the active NR-like resource grid before DMRS insertion.",
             "preview_kind": "grid",
             "data": tx_meta.tx_grid_data,
             "artifact_type": "grid",
@@ -452,7 +455,7 @@ def _build_pipeline_trace(
             "preview_kind": "llr",
             "data": rx_meta.llrs,
             "artifact_type": "llr",
-            "input_shape": [int(dim) for dim in np.asarray(rx_meta.equalized_symbols).shape],
+            "input_shape": [int(dim) for dim in np.asarray(rx_meta.detected_symbols).shape],
             "output_shape": [int(dim) for dim in np.asarray(rx_meta.llrs).shape],
         },
         {
@@ -499,7 +502,42 @@ def _build_pipeline_trace(
             "input_shape": [int(dim) for dim in np.asarray(rx_meta.decoder_input_llrs).shape],
             "output_shape": [int(dim) for dim in np.asarray(rx_meta.recovered_bits).shape],
         },
-    ])
+    ]
+
+    if bool(getattr(tx_meta, "transform_precoding_enabled", False)):
+        stages.insert(
+            7,
+            {
+                "section": "TX",
+                "stage": "Transform precoding",
+                "domain": "symbols",
+                "description": "DFT-based transform precoding is applied before uplink resource mapping.",
+                "preview_kind": "constellation",
+                "data": tx_meta.tx_symbols,
+                "artifact_type": "constellation",
+                "input_shape": [int(dim) for dim in np.asarray(tx_meta.modulation_symbols).shape],
+                "output_shape": [int(dim) for dim in np.asarray(tx_meta.tx_symbols).shape],
+            },
+        )
+        equalization_index = next(
+            index for index, stage in enumerate(stages) if stage["stage"] == "Equalization"
+        )
+        stages.insert(
+            equalization_index + 1,
+            {
+                "section": "RX",
+                "stage": "Inverse transform precoding",
+                "domain": "symbols",
+                "description": "The equalized PUSCH sequence is de-spread with the inverse DFT before demapping.",
+                "preview_kind": "constellation",
+                "data": rx_meta.detected_symbols,
+                "artifact_type": "constellation",
+                "input_shape": [int(dim) for dim in np.asarray(rx_meta.equalized_symbols).shape],
+                "output_shape": [int(dim) for dim in np.asarray(rx_meta.detected_symbols).shape],
+            },
+        )
+
+    return _normalize_pipeline(stages)
 
 
 def simulate_link(

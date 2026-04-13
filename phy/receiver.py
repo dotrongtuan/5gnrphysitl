@@ -21,6 +21,7 @@ from .resource_grid import ResourceGrid
 from .scrambling import descramble_llrs
 from .synchronization import correct_cfo, estimate_cfo_from_cp, estimate_symbol_timing
 from .transmitter import TxMetadata
+from .uplink import remove_transform_precoding
 
 
 @dataclass(slots=True)
@@ -40,6 +41,7 @@ class RxResult:
     re_dmrs_symbols: np.ndarray
     rx_symbols: np.ndarray
     equalized_symbols: np.ndarray
+    detected_symbols: np.ndarray
     channel_estimate: np.ndarray
     llrs: np.ndarray
     descrambled_llrs: np.ndarray
@@ -152,7 +154,12 @@ class NrReceiver:
             noise_variance=noise_variance,
             mode=str(receiver_cfg.get("equalizer", "mmse")),
         )
-        llrs = tx_metadata.mapper.demap_llr(equalized, noise_variance=max(noise_variance, 1e-9))
+        detected_symbols = (
+            remove_transform_precoding(equalized)
+            if bool(tx_metadata.transform_precoding_enabled) and str(tx_metadata.direction).lower() == "uplink"
+            else equalized.copy()
+        )
+        llrs = tx_metadata.mapper.demap_llr(detected_symbols, noise_variance=max(noise_variance, 1e-9))
         descrambled_llrs = descramble_llrs(llrs, tx_metadata.scrambling_sequence)
         rate_recovered_llrs = rate_recover_llrs(descrambled_llrs, tx_metadata.coding_metadata)
         decoder_input_llrs = rate_recovered_llrs.copy()
@@ -244,6 +251,7 @@ class NrReceiver:
             re_dmrs_symbols=re_dmrs_symbols,
             rx_symbols=rx_symbols,
             equalized_symbols=equalized,
+            detected_symbols=detected_symbols,
             channel_estimate=h_full,
             llrs=llrs,
             descrambled_llrs=descrambled_llrs,
