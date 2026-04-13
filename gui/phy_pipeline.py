@@ -385,6 +385,33 @@ class PhyPipelinePanel(QWidget):
         else:
             self._clear_view("No PHY stages available for the selected slot.")
 
+    def _current_slot_history_index(self) -> int:
+        if self.current_slot_record is None:
+            return -1
+        current_timeline_index = int(self.current_slot_record.get("timeline_index", -1))
+        for index, record in enumerate(self.slot_history):
+            if int(record.get("timeline_index", -1)) == current_timeline_index:
+                return index
+        return -1
+
+    def _move_to_slot_history_index(self, history_index: int, *, stage_index: int = 0) -> bool:
+        if not (0 <= history_index < len(self.slot_history)):
+            return False
+        slot_record = self.slot_history[history_index]
+        frame_index = int(slot_record["frame_index"])
+        slot_index = int(slot_record["slot_index"])
+
+        self.frame_slider.blockSignals(True)
+        self.frame_slider.setValue(frame_index)
+        self.frame_slider.blockSignals(False)
+        self._select_frame(frame_index, requested_slot=slot_index, preserve_stage=False)
+
+        if self.stages:
+            bounded_stage_index = max(0, min(int(stage_index), len(self.stages) - 1))
+            if bounded_stage_index != self.current_stage_index:
+                self._set_current_stage(bounded_stage_index)
+        return True
+
     def _rebuild_flow(self) -> None:
         while self.flow_row.count():
             item = self.flow_row.takeAt(0)
@@ -473,7 +500,7 @@ class PhyPipelinePanel(QWidget):
         if not self.stages:
             return
         self.play_timer.start(self.PLAYBACK_INTERVALS_MS[self.speed_combo.currentText()])
-        self.play_state_label.setText("Auto-play is running through the PHY stages.")
+        self.play_state_label.setText("Auto-play is running through the PHY stages and captured slots.")
 
     def pause_playback(self) -> None:
         self.play_timer.stop()
@@ -481,29 +508,58 @@ class PhyPipelinePanel(QWidget):
 
     def reset_playback(self) -> None:
         self.pause_playback()
-        if self.stages:
-            self._set_current_stage(0)
+        if self.slot_history:
+            self._move_to_slot_history_index(0, stage_index=0)
+            self.play_state_label.setText("Playback reset to the first captured slot and first PHY stage.")
 
     def step_forward(self) -> None:
         if not self.stages:
             return
-        next_index = min(self.current_stage_index + 1, len(self.stages) - 1)
-        self._set_current_stage(next_index)
-        self.play_state_label.setText(f"Step mode moved to stage {next_index + 1}/{len(self.stages)}.")
+        if self.current_stage_index < len(self.stages) - 1:
+            next_index = self.current_stage_index + 1
+            self._set_current_stage(next_index)
+            self.play_state_label.setText(f"Step mode moved to stage {next_index + 1}/{len(self.stages)}.")
+            return
+
+        next_slot_history_index = self._current_slot_history_index() + 1
+        if self._move_to_slot_history_index(next_slot_history_index, stage_index=0):
+            slot_label = self.current_slot_record.get("slot_label", "next slot") if self.current_slot_record else "next slot"
+            self.play_state_label.setText(f"Step mode moved to {slot_label}, stage 1/{len(self.stages)}.")
+            return
+
+        self.play_state_label.setText("Step mode is already at the last captured slot and final PHY stage.")
 
     def step_backward(self) -> None:
         if not self.stages:
             return
-        next_index = max(self.current_stage_index - 1, 0)
-        self._set_current_stage(next_index)
-        self.play_state_label.setText(f"Step mode moved back to stage {next_index + 1}/{len(self.stages)}.")
+        if self.current_stage_index > 0:
+            next_index = self.current_stage_index - 1
+            self._set_current_stage(next_index)
+            self.play_state_label.setText(f"Step mode moved back to stage {next_index + 1}/{len(self.stages)}.")
+            return
+
+        previous_slot_history_index = self._current_slot_history_index() - 1
+        if 0 <= previous_slot_history_index < len(self.slot_history):
+            self._move_to_slot_history_index(previous_slot_history_index, stage_index=10**9)
+            slot_label = self.current_slot_record.get("slot_label", "previous slot") if self.current_slot_record else "previous slot"
+            self.play_state_label.setText(f"Step mode moved back to {slot_label}, final stage.")
+            return
+
+        self.play_state_label.setText("Step mode is already at the first captured slot and first PHY stage.")
 
     def _advance_animation(self) -> None:
-        if self.current_stage_index >= len(self.stages) - 1:
-            self.pause_playback()
-            self.play_state_label.setText("Auto-play reached the CRC check stage.")
+        if self.current_stage_index < len(self.stages) - 1:
+            self._set_current_stage(self.current_stage_index + 1)
             return
-        self._set_current_stage(self.current_stage_index + 1)
+
+        next_slot_history_index = self._current_slot_history_index() + 1
+        if self._move_to_slot_history_index(next_slot_history_index, stage_index=0):
+            slot_label = self.current_slot_record.get("slot_label", "next slot") if self.current_slot_record else "next slot"
+            self.play_state_label.setText(f"Auto-play advanced to {slot_label}.")
+            return
+
+        self.pause_playback()
+        self.play_state_label.setText("Auto-play reached the last captured slot and CRC check stage.")
 
     def _on_stage_slider_changed(self, value: int) -> None:
         self._set_current_stage(value)
