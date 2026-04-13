@@ -605,7 +605,7 @@ class PhyPipelinePanel(QWidget):
         code_rate = tx_meta.payload_bits.size / max(coding_meta.rate_matched_length, 1)
         code_stage = "Polar-like control coder" if tx_meta.channel_type in {"control", "pdcch", "pbch"} else "LDPC-inspired coder"
 
-        return self._stage_definitions(
+        stages = self._stage_definitions(
             result=result,
             payload_with_crc=payload_with_crc,
             mother_bits=mother_bits,
@@ -630,6 +630,10 @@ class PhyPipelinePanel(QWidget):
             code_stage=code_stage,
             positions=positions,
         )
+        transfer = result.get("file_transfer")
+        if transfer:
+            stages = [*self._file_transfer_entry_stages(result), *stages, *self._file_transfer_exit_stages(result)]
+        return stages
 
     def _stage_definitions(
         self,
@@ -949,6 +953,72 @@ class PhyPipelinePanel(QWidget):
                     {"name": "CRC decision", "kind": "text", "payload": f"CRC status: {'PASS' if rx.crc_ok else 'FAIL'}\nCRC type: {coding_meta.crc_type}", "description": "Final CRC decision for the received block."},
                 ],
             },
+        ]
+
+    def _file_transfer_entry_stages(self, result: dict[str, Any]) -> list[dict[str, Any]]:
+        transfer = result["file_transfer"]
+        source_package_bits = np.asarray(result.get("source_package_bits", np.array([], dtype=np.uint8)), dtype=np.uint8)
+        summary_text = (
+            f"Source file: {transfer['source_filename']}\n"
+            f"Source path: {transfer['source_path']}\n"
+            f"Media kind: {transfer['media_kind']}\n"
+            f"MIME type: {transfer['mime_type']}\n"
+            f"Source bytes: {transfer['source_size_bytes']}\n"
+            f"Package bytes: {transfer['package_size_bytes']}\n"
+            f"Payload bits/chunk: {transfer['payload_bits_per_chunk']}\n"
+            f"Total chunks: {transfer['total_chunks']}\n"
+            f"Source preview:\n{transfer['source_preview']}"
+        )
+        return [
+            {
+                "key": "file_source",
+                "section": "TX",
+                "flow_label": "File Src",
+                "title": "File Source + Packaging",
+                "description": "The TX-side file is read from disk, serialized into a package with metadata, converted to bits, and segmented into transport blocks before entering the PHY chain.",
+                "metrics": {
+                    "Filename": transfer["source_filename"],
+                    "Media kind": transfer["media_kind"],
+                    "Source bytes": transfer["source_size_bytes"],
+                    "Chunks": transfer["total_chunks"],
+                },
+                "artifacts": [
+                    {"name": "Transfer summary", "kind": "text", "payload": summary_text, "description": "High-level metadata for the selected TX-side file and its PHY chunking."},
+                    {"name": "Packaged bitstream", "kind": "bits", "payload": source_package_bits, "description": "Serialized file package before chunking into transport blocks."},
+                ],
+            }
+        ]
+
+    def _file_transfer_exit_stages(self, result: dict[str, Any]) -> list[dict[str, Any]]:
+        transfer = result["file_transfer"]
+        recovered_bits = np.asarray(result.get("recovered_package_bits", np.array([], dtype=np.uint8)), dtype=np.uint8)
+        summary_text = (
+            f"Transfer success: {transfer['success']}\n"
+            f"Chunk status: {transfer['chunks_passed']} passed / {transfer['total_chunks']} total\n"
+            f"SHA-256 match: {transfer['sha256_match']}\n"
+            f"Restored file path: {transfer.get('restored_file_path') or 'not written'}\n"
+            f"Restored size (bytes): {transfer.get('restored_size_bytes', 0)}\n"
+            f"Transfer error: {transfer.get('error') or 'none'}\n"
+            f"RX preview:\n{transfer['restored_preview']}"
+        )
+        return [
+            {
+                "key": "file_rx",
+                "section": "RX",
+                "flow_label": "File RX",
+                "title": "File Reassembly + Write",
+                "description": "Recovered chunk payloads are concatenated, parsed back into the original file package, and written to disk at the RX side if all required transport blocks survive PHY decoding.",
+                "metrics": {
+                    "Transfer success": bool(transfer["success"]),
+                    "Chunks passed": transfer["chunks_passed"],
+                    "Chunks failed": transfer["chunks_failed"],
+                    "SHA-256 match": bool(transfer["sha256_match"]),
+                },
+                "artifacts": [
+                    {"name": "Reassembly summary", "kind": "text", "payload": summary_text, "description": "End-to-end file recovery status after PHY transport."},
+                    {"name": "Recovered package bits", "kind": "bits", "payload": recovered_bits, "description": "Recovered serialized file package after chunk reassembly."},
+                ],
+            }
         ]
 
     @staticmethod

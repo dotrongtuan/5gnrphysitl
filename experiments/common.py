@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from typing import Dict
 
 import numpy as np
@@ -9,8 +10,16 @@ from channel.awgn_channel import AWGNChannel
 from channel.doppler import apply_doppler_rotation
 from channel.fading_channel import FadingChannel
 from channel.impairments import apply_impairments
+from phy.kpi import LinkKpiSummary, bit_error_rate, spectral_efficiency_bps_hz
 from phy.receiver import NrReceiver
 from phy.transmitter import NrTransmitter
+from utils.file_transfer import (
+    build_file_payload_package,
+    chunk_bitstream,
+    file_preview_text,
+    join_valid_chunks,
+    restore_file_from_package_bits,
+)
 
 
 def _reference_channel_grid(tx_metadata, frequency_response: np.ndarray) -> np.ndarray:
@@ -26,6 +35,92 @@ def _reference_channel_grid(tx_metadata, frequency_response: np.ndarray) -> np.n
     )
     grid[:] = active[None, :]
     return grid
+
+
+def _payload_size_bits_for_channel(config: Dict, channel_type: str) -> int:
+    if channel_type.lower() in {"control", "pdcch"}:
+        return int(config.get("control_channel", {}).get("payload_bits", 128))
+    return int(config.get("transport_block", {}).get("size_bits", 1024))
+
+
+def _aggregate_file_transfer_kpis(
+    *,
+    config: Dict,
+    reference_bits: np.ndarray,
+    recovered_bits: np.ndarray,
+    chunk_results: list[Dict],
+    chunk_valid_bits: list[int],
+    transfer_success: bool,
+    sha256_match: bool,
+) -> LinkKpiSummary:
+    rx_results = [entry["rx"] for entry in chunk_results]
+    tx_meta = chunk_results[0]["tx"].metadata
+    numerology = tx_meta.numerology
+    slot_duration_s = numerology.slot_length_samples / numerology.sample_rate
+    total_time_s = max(slot_duration_s * len(chunk_results), slot_duration_s)
+    delivered_bits = float(sum(valid_bits for valid_bits, entry in zip(chunk_valid_bits, rx_results) if entry.crc_ok))
+    throughput = delivered_bits / total_time_s if transfer_success else 0.0
+    bandwidth_hz = float(
+        config.get("carrier", {}).get("bandwidth_hz", numerology.active_subcarriers * numerology.subcarrier_spacing_hz)
+    )
+    return LinkKpiSummary(
+        ber=bit_error_rate(reference_bits, recovered_bits),
+        bler=float(np.mean([0.0 if result.crc_ok else 1.0 for result in rx_results])),
+        evm=float(np.mean([result.kpis.evm for result in rx_results])),
+        throughput_bps=throughput,
+        spectral_efficiency_bps_hz=spectral_efficiency_bps_hz(throughput=throughput, bandwidth_hz=bandwidth_hz),
+        estimated_snr_db=float(np.mean([result.kpis.estimated_snr_db for result in rx_results])),
+        crc_ok=transfer_success,
+        channel_estimation_mse=float(np.mean([result.kpis.channel_estimation_mse or 0.0 for result in rx_results])),
+        synchronization_error_samples=float(
+            np.mean([result.kpis.synchronization_error_samples or 0.0 for result in rx_results])
+        ),
+        extra={
+            "file_transfer_success": 1.0 if transfer_success else 0.0,
+            "sha256_match": 1.0 if sha256_match else 0.0,
+            "chunks_total": float(len(chunk_results)),
+            "chunks_failed": float(sum(not result.crc_ok for result in rx_results)),
+            "package_size_bytes": float(len(reference_bits) // 8),
+        },
+    )
+
+
+def _file_transfer_pipeline_stages(
+    *,
+    package,
+    transfer_summary: Dict,
+) -> tuple[Dict, Dict]:
+    tx_stage = {
+        "section": "TX",
+        "stage": "File source + packaging",
+        "domain": "bits",
+        "preview_kind": "text",
+        "description": "Selected source file is serialized into a binary package, converted to a bitstream, and segmented into transport blocks.",
+        "data": (
+            f"Source file: {package.filename}\n"
+            f"Media kind: {package.media_kind}\n"
+            f"MIME type: {package.mime_type}\n"
+            f"Source bytes: {len(package.payload_bytes)}\n"
+            f"Package bytes: {len(package.package_bytes)}\n"
+            f"Total chunks: {transfer_summary['total_chunks']}\n"
+            f"TX preview:\n{file_preview_text(package.media_kind, package.payload_bytes)}"
+        ),
+    }
+    rx_stage = {
+        "section": "RX",
+        "stage": "File reassembly + write",
+        "domain": "bits",
+        "preview_kind": "text",
+        "description": "Recovered chunk payloads are concatenated, parsed back into the original file package, and written to disk at the RX side.",
+        "data": (
+            f"Transfer success: {transfer_summary['success']}\n"
+            f"CRC-passing chunks: {transfer_summary['chunks_passed']} / {transfer_summary['total_chunks']}\n"
+            f"SHA-256 match: {transfer_summary['sha256_match']}\n"
+            f"Restored path: {transfer_summary.get('restored_file_path', 'n/a')}\n"
+            f"RX preview:\n{transfer_summary.get('restored_preview', 'n/a')}"
+        ),
+    }
+    return tx_stage, rx_stage
 
 
 def _build_pipeline_trace(
@@ -196,10 +291,21 @@ def _build_pipeline_trace(
     ]
 
 
-def simulate_link(config: Dict, channel_type: str | None = None) -> Dict:
+def simulate_link(
+    config: Dict,
+    channel_type: str | None = None,
+    payload_bits: np.ndarray | None = None,
+    seed_offset: int = 0,
+) -> Dict:
     config = deepcopy(config)
+    if seed_offset:
+        config.setdefault("simulation", {})
+        config["simulation"]["seed"] = int(config.get("simulation", {}).get("seed", 0)) + int(seed_offset)
     transmitter = NrTransmitter(config)
-    tx_result = transmitter.transmit(channel_type=channel_type or config.get("link", {}).get("channel_type", "data"))
+    tx_result = transmitter.transmit(
+        channel_type=channel_type or config.get("link", {}).get("channel_type", "data"),
+        payload_bits=payload_bits,
+    )
 
     simulation_seed = int(config.get("simulation", {}).get("seed", 0))
     rng = np.random.default_rng(simulation_seed + 99)
@@ -302,3 +408,112 @@ def simulate_link(config: Dict, channel_type: str | None = None) -> Dict:
         "channel_output_waveform": channel_output_waveform,
         "rx_waveform": rx_waveform,
     }
+
+
+def simulate_file_transfer(
+    config: Dict,
+    *,
+    source_path: str,
+    output_dir: str | None = None,
+    channel_type: str | None = None,
+) -> Dict:
+    config = deepcopy(config)
+    active_channel_type = channel_type or config.get("link", {}).get("channel_type", "data")
+    package = build_file_payload_package(source_path)
+    payload_bits_per_chunk = _payload_size_bits_for_channel(config, active_channel_type)
+    chunks = chunk_bitstream(package.package_bits, payload_bits_per_chunk)
+
+    chunk_results: list[Dict] = []
+    recovered_chunks: list[np.ndarray] = []
+    for chunk in chunks:
+        result = simulate_link(
+            config=config,
+            channel_type=active_channel_type,
+            payload_bits=chunk.bits,
+            seed_offset=chunk.index,
+        )
+        result["transfer_chunk"] = {
+            "index": chunk.index,
+            "total": chunk.total,
+            "valid_bits": chunk.valid_bits,
+        }
+        chunk_results.append(result)
+        recovered_chunks.append(result["rx"].recovered_bits[: chunk.valid_bits])
+
+    recovered_package_bits = join_valid_chunks(chunks, recovered_chunks)
+    output_root = output_dir or str(Path(config.get("simulation", {}).get("output_dir", "outputs")) / "rx_files")
+    restored_file_path = None
+    restored_preview = "n/a"
+    restored_size_bytes = 0
+    restored_media_kind = package.media_kind
+    sha256_match = False
+    transfer_success = False
+    transfer_error = ""
+
+    if all(entry["rx"].crc_ok for entry in chunk_results):
+        try:
+            restored = restore_file_from_package_bits(recovered_package_bits, output_dir=output_root)
+            restored_file_path = str(restored.destination_path)
+            restored_preview = file_preview_text(restored.media_kind, restored.payload_bytes)
+            restored_size_bytes = len(restored.payload_bytes)
+            restored_media_kind = restored.media_kind
+            sha256_match = restored.sha256_match
+            transfer_success = restored.sha256_match
+            if not transfer_success:
+                transfer_error = "PHY chunk CRCs passed, but the reconstructed file hash does not match the source."
+        except Exception as exc:
+            transfer_error = str(exc)
+    else:
+        transfer_error = "One or more PHY transport blocks failed CRC, so the RX file was not written."
+
+    aggregate_kpis = _aggregate_file_transfer_kpis(
+        config=config,
+        reference_bits=package.package_bits,
+        recovered_bits=recovered_package_bits,
+        chunk_results=chunk_results,
+        chunk_valid_bits=[chunk.valid_bits for chunk in chunks],
+        transfer_success=transfer_success,
+        sha256_match=sha256_match,
+    )
+
+    representative = deepcopy(chunk_results[0])
+    transfer_summary = {
+        "mode": "file",
+        "source_path": str(package.source_path),
+        "source_filename": package.filename,
+        "media_kind": package.media_kind,
+        "mime_type": package.mime_type,
+        "source_size_bytes": len(package.payload_bytes),
+        "package_size_bytes": len(package.package_bytes),
+        "payload_bits_per_chunk": payload_bits_per_chunk,
+        "total_chunks": len(chunks),
+        "chunks_passed": int(sum(entry["rx"].crc_ok for entry in chunk_results)),
+        "chunks_failed": int(sum(not entry["rx"].crc_ok for entry in chunk_results)),
+        "success": transfer_success,
+        "sha256_match": sha256_match,
+        "restored_file_path": restored_file_path,
+        "restored_size_bytes": restored_size_bytes,
+        "restored_media_kind": restored_media_kind,
+        "source_preview": file_preview_text(package.media_kind, package.payload_bytes),
+        "restored_preview": restored_preview,
+        "error": transfer_error,
+        "chunk_status": [bool(entry["rx"].crc_ok) for entry in chunk_results],
+    }
+
+    tx_stage, rx_stage = _file_transfer_pipeline_stages(package=package, transfer_summary=transfer_summary)
+    representative["pipeline"] = [tx_stage, *representative["pipeline"], rx_stage]
+    representative["kpis"] = aggregate_kpis
+    representative["file_transfer"] = transfer_summary
+    representative["file_transfer_chunks"] = [
+        {
+            "index": chunk.index,
+            "valid_bits": chunk.valid_bits,
+            "crc_ok": bool(result["rx"].crc_ok),
+            "ber": float(result["rx"].kpis.ber),
+            "evm": float(result["rx"].kpis.evm),
+        }
+        for chunk, result in zip(chunks, chunk_results)
+    ]
+    representative["recovered_package_bits"] = recovered_package_bits
+    representative["source_package_bits"] = package.package_bits
+    return representative

@@ -10,6 +10,8 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QGroupBox,
+    QHBoxLayout,
+    QLineEdit,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -23,6 +25,7 @@ class ControlPanel(QWidget):
         super().__init__(parent)
         self.widgets: Dict[str, object] = {}
         self.buttons: Dict[str, QPushButton] = {}
+        self.path_buttons: Dict[str, QPushButton] = {}
         self.setMinimumWidth(270)
         self.setMaximumWidth(340)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -47,6 +50,21 @@ class ControlPanel(QWidget):
         widget.setValue(value)
         widget.setSingleStep(step)
         return widget
+
+    def _path_selector(self, *, key: str, browse_label: str) -> QWidget:
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        line_edit = QLineEdit()
+        line_edit.setPlaceholderText("Optional")
+        browse_button = QPushButton(browse_label)
+        browse_button.setMinimumWidth(42)
+        row.addWidget(line_edit, stretch=1)
+        row.addWidget(browse_button)
+        self.widgets[key] = line_edit
+        self.path_buttons[key] = browse_button
+        return container
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -93,6 +111,8 @@ class ControlPanel(QWidget):
         self.widgets["phase_noise_std"] = self._dspin(0.0, 0.1, 5e-4, 1e-4, 5)
         self.widgets["iq_imbalance_db"] = self._dspin(0.0, 6.0, 0.0, 0.1, 2)
         self.widgets["use_gnuradio"] = QCheckBox("Use GNU Radio loopback")
+        tx_file_selector = self._path_selector(key="tx_file_path", browse_label="...")
+        rx_dir_selector = self._path_selector(key="rx_output_dir", browse_label="...")
 
         form.addRow("Mode", self.widgets["mode"])
         form.addRow("Modulation", self.widgets["modulation"])
@@ -113,6 +133,8 @@ class ControlPanel(QWidget):
         form.addRow("STO (samples)", self.widgets["sto_samples"])
         form.addRow("Phase noise", self.widgets["phase_noise_std"])
         form.addRow("IQ imbalance", self.widgets["iq_imbalance_db"])
+        form.addRow("TX file", tx_file_selector)
+        form.addRow("RX output", rx_dir_selector)
         form.addRow("", self.widgets["use_gnuradio"])
 
         layout.addWidget(mode_box)
@@ -176,6 +198,8 @@ class ControlPanel(QWidget):
         self.widgets["sto_samples"].setValue(int(config.get("channel", {}).get("sto_samples", 0)))
         self.widgets["phase_noise_std"].setValue(float(config.get("channel", {}).get("phase_noise_std", 0.0)))
         self.widgets["iq_imbalance_db"].setValue(float(config.get("channel", {}).get("iq_imbalance_db", 0.0)))
+        self.widgets["tx_file_path"].setText(str(config.get("payload_io", {}).get("tx_file_path", "")))
+        self.widgets["rx_output_dir"].setText(str(config.get("payload_io", {}).get("rx_output_dir", "")))
         self.widgets["use_gnuradio"].setChecked(bool(config.get("simulation", {}).get("use_gnuradio", False)))
 
     def build_patch(self) -> dict:
@@ -202,6 +226,10 @@ class ControlPanel(QWidget):
                 "sto_samples": int(self.widgets["sto_samples"].value()),
                 "phase_noise_std": float(self.widgets["phase_noise_std"].value()),
                 "iq_imbalance_db": float(self.widgets["iq_imbalance_db"].value()),
+            },
+            "payload_io": {
+                "tx_file_path": self.widgets["tx_file_path"].text().strip(),
+                "rx_output_dir": self.widgets["rx_output_dir"].text().strip(),
             },
             "simulation": {"use_gnuradio": self.widgets["use_gnuradio"].isChecked()},
             "experiments": {"default_batch_experiment": self.widgets["batch_experiment"].currentText()},

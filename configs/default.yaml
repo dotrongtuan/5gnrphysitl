@@ -3,6 +3,10 @@ simulation:
   output_dir: outputs
   use_gnuradio: false
 
+payload_io:
+  tx_file_path: ""
+  rx_output_dir: outputs/rx_files
+
 link:
   direction: downlink
   channel_type: data

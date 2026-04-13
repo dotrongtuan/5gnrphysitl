@@ -1474,6 +1474,37 @@ python main.py --config configs/default.yaml
 python main.py --config configs/default.yaml --gui
 ```
 
+### Transmit a TX-side file through the PHY pipeline
+
+The simulator can packetize a `.txt` or image file at the TX side, segment it into transport blocks, transmit the chunks through the PHY chain, and reconstruct the file at RX.
+
+CLI example:
+
+```bash
+python main.py --config configs/default.yaml --tx-file path/to/source.txt --rx-output-dir outputs/rx_files
+```
+
+Image example:
+
+```bash
+python main.py --config configs/default.yaml --tx-file path/to/photo.png --rx-output-dir outputs/rx_files
+```
+
+Behavior:
+
+- the source file is serialized into a package with metadata and SHA-256
+- the package bitstream is split into multiple PHY payload blocks
+- each block is transmitted through the configured PHY/channel path
+- RX reassembles the blocks and writes the recovered file under `payload_io.rx_output_dir`
+- the GUI `PHY Pipeline` adds `File Source + Packaging` and `File Reassembly + Write` stages when file transfer mode is active
+
+GUI workflow:
+
+- set `TX file` in the left control panel
+- optionally set `RX output`
+- press `Run` or `Step Mode`
+- inspect the first PHY chunk in the normal pipeline stages, then inspect the end-stage file recovery block
+
 ### Run a batch experiment
 
 ```bash

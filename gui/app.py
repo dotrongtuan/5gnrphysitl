@@ -8,11 +8,11 @@ import sys
 import webbrowser
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QMessageBox, QSplitter, QWidget
+from PyQt5.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QMainWindow, QMessageBox, QSplitter, QWidget
 
 from experiments.ber_vs_snr import run_experiment as run_ber_vs_snr
 from experiments.bler_vs_snr import run_experiment as run_bler_vs_snr
-from experiments.common import simulate_link
+from experiments.common import simulate_file_transfer, simulate_link
 from experiments.control_vs_data import run_experiment as run_control_vs_data
 from experiments.doppler_sweep import run_experiment as run_doppler_sweep
 from experiments.evm_vs_snr import run_experiment as run_evm_vs_snr
@@ -59,8 +59,17 @@ class SimulationWorker(QObject):
                 dataframe = runner(self.config, output_dir=output_dir)
                 self.result_ready.emit({"dataframe": dataframe, "experiment_name": self.experiment_name})
             else:
-                self.log_message.emit("Running single-link simulation.")
-                result = simulate_link(self.config)
+                tx_file_path = str(self.config.get("payload_io", {}).get("tx_file_path", "")).strip()
+                if tx_file_path:
+                    self.log_message.emit(f"Running file-transfer simulation for {Path(tx_file_path).name}.")
+                    result = simulate_file_transfer(
+                        self.config,
+                        source_path=tx_file_path,
+                        output_dir=str(self.config.get("payload_io", {}).get("rx_output_dir", "")).strip() or None,
+                    )
+                else:
+                    self.log_message.emit("Running single-link simulation.")
+                    result = simulate_link(self.config)
                 self.result_ready.emit(result)
         except Exception as exc:  # pragma: no cover - GUI path
             self.error.emit(str(exc))
@@ -124,6 +133,8 @@ class NrPhyResearchApp(QMainWindow):
         self.controls.buttons["tx_sink"].clicked.connect(self.open_tx_sink)
         self.controls.buttons["rx_sink"].clicked.connect(self.open_rx_sink)
         self.controls.buttons["dash"].clicked.connect(self.open_dash_dashboard)
+        self.controls.path_buttons["tx_file_path"].clicked.connect(self.choose_tx_file)
+        self.controls.path_buttons["rx_output_dir"].clicked.connect(self.choose_rx_output_dir)
 
     def _configure_optional_tool_buttons(self) -> None:
         if not HAVE_GNURADIO:
@@ -152,6 +163,10 @@ class NrPhyResearchApp(QMainWindow):
             "Dash / Plotly": "Available" if self._dash_available() else "Unavailable",
             "GNU Radio loopback requested": "Yes" if bool(self.current_config.get("simulation", {}).get("use_gnuradio", False)) else "No",
         }
+        tx_file = str(self.current_config.get("payload_io", {}).get("tx_file_path", "")).strip()
+        if tx_file:
+            status["TX file"] = tx_file
+            status["RX output dir"] = str(self.current_config.get("payload_io", {}).get("rx_output_dir", "")).strip() or "outputs/rx_files"
         if not HAVE_GNURADIO:
             status["GNU Radio reason"] = GNURADIO_IMPORT_ERROR or "GNU Radio import failed."
             status["How to enable sinks"] = "Run the GUI from a Conda env with Python 3.10 + GNU Radio 3.10+ installed."
@@ -161,6 +176,11 @@ class NrPhyResearchApp(QMainWindow):
                 status["GNU Radio loopback used"] = "Yes" if channel_state.get("gnu_radio_used") else "No"
                 if channel_state.get("gnu_radio_error"):
                     status["Loopback fallback reason"] = channel_state["gnu_radio_error"]
+            file_transfer = result.get("file_transfer")
+            if file_transfer:
+                status["Transfer mode"] = "File"
+                status["File chunks"] = f"{file_transfer['chunks_passed']} / {file_transfer['total_chunks']} passed"
+                status["RX restored file"] = file_transfer.get("restored_file_path") or "not written"
         self.dashboard.update_status(status)
 
     def _update_notes(self, result: dict | None = None) -> None:
@@ -192,6 +212,11 @@ class NrPhyResearchApp(QMainWindow):
                 notes.append("GNU Radio loopback is requested, but GNU Radio is not installed in the active Python environment.")
         if self.controls.widgets["mode"].currentText() == "compare":
             notes.append("Compare mode currently reuses the data path in single-run mode. Use batch experiments for explicit comparisons.")
+        tx_file = str(self.current_config.get("payload_io", {}).get("tx_file_path", "")).strip()
+        if tx_file:
+            rx_output_dir = str(self.current_config.get("payload_io", {}).get("rx_output_dir", "")).strip() or "outputs/rx_files"
+            notes.append(f"File-transfer mode is active. TX file: {tx_file}")
+            notes.append(f"Recovered files are written under: {rx_output_dir}")
 
         if result is not None:
             channel_state = result.get("channel_state", {})
@@ -200,6 +225,14 @@ class NrPhyResearchApp(QMainWindow):
                 error_message = channel_state.get("gnu_radio_error")
                 if error_message:
                     notes.append(f"GNU Radio fallback reason: {error_message}")
+            if result.get("file_transfer"):
+                transfer = result["file_transfer"]
+                notes.append(
+                    f"File transfer used {transfer['total_chunks']} transport blocks. "
+                    f"Chunk pass count: {transfer['chunks_passed']} / {transfer['total_chunks']}."
+                )
+                if transfer.get("error"):
+                    notes.append(f"File transfer note: {transfer['error']}")
 
         notes.append("Signal-domain sync summary mixes samples, Hz, and linear EVM for quick diagnostics.")
         self.dashboard.set_notes(notes)
@@ -273,6 +306,29 @@ class NrPhyResearchApp(QMainWindow):
         self._update_notes()
         self.dashboard.append_log("Configuration loaded from YAML.")
 
+    def choose_tx_file(self) -> None:
+        start_dir = str(Path(self.current_config.get("payload_io", {}).get("tx_file_path", "")).expanduser().resolve().parent) if str(self.current_config.get("payload_io", {}).get("tx_file_path", "")).strip() else str(Path.cwd())
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select TX-side file",
+            start_dir,
+            "Supported files (*.txt *.png *.jpg *.jpeg *.bmp *.gif *.json *.csv *.md);;All files (*.*)",
+        )
+        if not path:
+            return
+        self.controls.widgets["tx_file_path"].setText(path)
+        self.dashboard.append_log(f"Selected TX file: {path}")
+        self._build_runtime_config()
+
+    def choose_rx_output_dir(self) -> None:
+        start_dir = str(Path(self.current_config.get("payload_io", {}).get("rx_output_dir", "")).expanduser()) if str(self.current_config.get("payload_io", {}).get("rx_output_dir", "")).strip() else str(Path.cwd())
+        path = QFileDialog.getExistingDirectory(self, "Select RX output directory", start_dir)
+        if not path:
+            return
+        self.controls.widgets["rx_output_dir"].setText(path)
+        self.dashboard.append_log(f"Selected RX output directory: {path}")
+        self._build_runtime_config()
+
     def _persist_batch_dataframe(self, dataframe, experiment_name: str) -> Path:
         output_dir = Path(self.current_config.get("simulation", {}).get("output_dir", "outputs")) / "gui_batch"
         csv_path = output_dir / f"{experiment_name}_latest.csv"
@@ -286,7 +342,15 @@ class NrPhyResearchApp(QMainWindow):
         self.dashboard.append_log("No cached single-link result. Running one simulation synchronously for instrumentation.")
         try:
             config = self._build_runtime_config()
-            result = simulate_link(config)
+            tx_file_path = str(config.get("payload_io", {}).get("tx_file_path", "")).strip()
+            if tx_file_path:
+                result = simulate_file_transfer(
+                    config,
+                    source_path=tx_file_path,
+                    output_dir=str(config.get("payload_io", {}).get("rx_output_dir", "")).strip() or None,
+                )
+            else:
+                result = simulate_link(config)
         except Exception as exc:  # pragma: no cover - GUI path
             self.handle_error(str(exc))
             return None
@@ -366,7 +430,14 @@ class NrPhyResearchApp(QMainWindow):
             channel_state = result.get("channel_state", {})
             if channel_state.get("gnu_radio_requested") and not channel_state.get("gnu_radio_used"):
                 self.dashboard.append_log("GNU Radio loopback request fell back to the Python-only channel path.")
-            self.dashboard.append_log("Single-link simulation completed.")
+            if result.get("file_transfer"):
+                transfer = result["file_transfer"]
+                if transfer.get("success"):
+                    self.dashboard.append_log(f"File transfer completed. RX file: {transfer.get('restored_file_path')}")
+                else:
+                    self.dashboard.append_log(f"File transfer completed with errors: {transfer.get('error')}")
+            else:
+                self.dashboard.append_log("Single-link simulation completed.")
         elif isinstance(result, dict) and "dataframe" in result:
             self.step_mode_requested = False
             dataframe = result["dataframe"]
