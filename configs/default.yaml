@@ -78,6 +78,7 @@ receiver:
 experiments:
   default_batch_experiment: ber_vs_snr
   snr_sweep_db: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+  file_transfer_snr_sweep_db: [0, 2, 4, 6, 8, 10]
   trials_per_point: 6
 
 gui:

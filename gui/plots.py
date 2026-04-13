@@ -427,12 +427,19 @@ class PlotPanel(QWidget):
             (name for name in ["snr_db", "doppler_hz", "cfo_hz", "delay_spread_s"] if name in dataframe.columns),
             numeric_columns[0] if numeric_columns else None,
         )
-        metrics = [name for name in ["ber", "bler", "evm", "throughput_bps"] if name in dataframe.columns]
+        metrics = [name for name in ["success_flag", "chunks_failed", "ber", "bler", "evm", "throughput_bps"] if name in dataframe.columns]
         axes = self.batch_axes.ravel()
+        grouped_by_file = "source_filename" in dataframe.columns and dataframe["source_filename"].nunique() > 1
 
         for index, metric in enumerate(metrics[:4]):
             axis = axes[index]
-            if preferred_x and preferred_x != metric:
+            if grouped_by_file and preferred_x and preferred_x != metric:
+                for filename, group in dataframe.groupby("source_filename"):
+                    ordered = group.sort_values(preferred_x)
+                    axis.plot(ordered[preferred_x], ordered[metric], marker="o", label=filename)
+                axis.legend(fontsize=8)
+                axis.set_xlabel(preferred_x)
+            elif preferred_x and preferred_x != metric:
                 axis.plot(dataframe[preferred_x], dataframe[metric], marker="o")
                 axis.set_xlabel(preferred_x)
             else:
@@ -448,6 +455,7 @@ class PlotPanel(QWidget):
             summary_text = "\n".join(
                 [
                     f"rows: {len(dataframe)}",
+                    *(f"files: {dataframe['source_filename'].nunique()}" for _ in [0] if "source_filename" in dataframe.columns),
                     *(f"{metric}: min={dataframe[metric].min():.4g}, max={dataframe[metric].max():.4g}" for metric in metrics[:3]),
                 ]
             )

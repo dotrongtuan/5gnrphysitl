@@ -17,6 +17,7 @@ from experiments.control_vs_data import run_experiment as run_control_vs_data
 from experiments.doppler_sweep import run_experiment as run_doppler_sweep
 from experiments.evm_vs_snr import run_experiment as run_evm_vs_snr
 from experiments.fading_sweep import run_experiment as run_fading_sweep
+from experiments.file_transfer_sweep import run_experiment as run_file_transfer_sweep
 from experiments.impairment_sweep import run_experiment as run_impairment_sweep
 from gui.config_editor import load_config_dialog, save_config_dialog
 from gui.controls import ControlPanel
@@ -35,6 +36,7 @@ BATCH_EXPERIMENTS = {
     "fading_sweep": run_fading_sweep,
     "doppler_sweep": run_doppler_sweep,
     "impairment_sweep": run_impairment_sweep,
+    "file_transfer_sweep": run_file_transfer_sweep,
 }
 
 
@@ -162,6 +164,8 @@ class NrPhyResearchApp(QMainWindow):
             "RX sink button": "Enabled" if self.controls.buttons["rx_sink"].isEnabled() else "Disabled",
             "Dash / Plotly": "Available" if self._dash_available() else "Unavailable",
             "GNU Radio loopback requested": "Yes" if bool(self.current_config.get("simulation", {}).get("use_gnuradio", False)) else "No",
+            "Perfect sync": "Yes" if bool(self.current_config.get("receiver", {}).get("perfect_sync", False)) else "No",
+            "Perfect channel estimation": "Yes" if bool(self.current_config.get("receiver", {}).get("perfect_channel_estimation", False)) else "No",
         }
         tx_file = str(self.current_config.get("payload_io", {}).get("tx_file_path", "")).strip()
         if tx_file:

@@ -1503,14 +1503,39 @@ GUI workflow:
 
 - set `TX file` in the left control panel
 - optionally set `RX output`
+- uncheck `Perfect sync` and `Perfect CE` if you want more realistic error thresholds
 - press `Run` or `Step Mode`
 - inspect the first PHY chunk in the normal pipeline stages, then inspect the end-stage file recovery block
+
+For file transfer, the application-layer outcome is all-or-nothing:
+
+- if every transport block passes CRC, the RX file is reconstructed byte-perfect
+- if any transport block fails CRC, no RX file is written
+- larger files are therefore more sensitive to SNR because they span more PHY blocks
 
 ### Run a batch experiment
 
 ```bash
 python run_experiments.py --experiment ber_vs_snr --config configs/default.yaml --output-dir outputs
 ```
+
+### Run a file-transfer sweep vs SNR
+
+Use one TX file:
+
+```bash
+python run_experiments.py --experiment file_transfer_sweep --config configs/default.yaml --output-dir outputs
+```
+
+Recommended workflow:
+
+- set `payload_io.tx_file_path` in the config, or choose a `TX file` in the GUI and run `Batch`
+- if `payload_io.tx_file_path` is empty, the runner falls back to files under `input/`
+- disable `Perfect sync` and `Perfect CE` in the GUI if you want more realistic thresholds
+- inspect:
+  - `outputs/file_transfer_sweep/file_transfer_sweep.csv`
+  - `outputs/file_transfer_sweep/file_transfer_success_vs_snr.png`
+  - `outputs/file_transfer_sweep/file_transfer_chunks_failed_vs_snr.png`
 
 ### Use a harsher scenario
 

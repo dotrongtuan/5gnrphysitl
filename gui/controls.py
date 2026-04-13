@@ -91,6 +91,7 @@ class ControlPanel(QWidget):
                 "fading_sweep",
                 "doppler_sweep",
                 "impairment_sweep",
+                "file_transfer_sweep",
             ]
         )
         self.widgets["scs_khz"] = self._combo(["15", "30", "60"])
@@ -110,6 +111,8 @@ class ControlPanel(QWidget):
         self.widgets["sto_samples"] = self._spin(0, 256, 4)
         self.widgets["phase_noise_std"] = self._dspin(0.0, 0.1, 5e-4, 1e-4, 5)
         self.widgets["iq_imbalance_db"] = self._dspin(0.0, 6.0, 0.0, 0.1, 2)
+        self.widgets["perfect_sync"] = QCheckBox()
+        self.widgets["perfect_channel_estimation"] = QCheckBox()
         self.widgets["use_gnuradio"] = QCheckBox("Use GNU Radio loopback")
         tx_file_selector = self._path_selector(key="tx_file_path", browse_label="...")
         rx_dir_selector = self._path_selector(key="rx_output_dir", browse_label="...")
@@ -133,6 +136,8 @@ class ControlPanel(QWidget):
         form.addRow("STO (samples)", self.widgets["sto_samples"])
         form.addRow("Phase noise", self.widgets["phase_noise_std"])
         form.addRow("IQ imbalance", self.widgets["iq_imbalance_db"])
+        form.addRow("Perfect sync", self.widgets["perfect_sync"])
+        form.addRow("Perfect CE", self.widgets["perfect_channel_estimation"])
         form.addRow("TX file", tx_file_selector)
         form.addRow("RX output", rx_dir_selector)
         form.addRow("", self.widgets["use_gnuradio"])
@@ -198,6 +203,10 @@ class ControlPanel(QWidget):
         self.widgets["sto_samples"].setValue(int(config.get("channel", {}).get("sto_samples", 0)))
         self.widgets["phase_noise_std"].setValue(float(config.get("channel", {}).get("phase_noise_std", 0.0)))
         self.widgets["iq_imbalance_db"].setValue(float(config.get("channel", {}).get("iq_imbalance_db", 0.0)))
+        self.widgets["perfect_sync"].setChecked(bool(config.get("receiver", {}).get("perfect_sync", False)))
+        self.widgets["perfect_channel_estimation"].setChecked(
+            bool(config.get("receiver", {}).get("perfect_channel_estimation", False))
+        )
         self.widgets["tx_file_path"].setText(str(config.get("payload_io", {}).get("tx_file_path", "")))
         self.widgets["rx_output_dir"].setText(str(config.get("payload_io", {}).get("rx_output_dir", "")))
         self.widgets["use_gnuradio"].setChecked(bool(config.get("simulation", {}).get("use_gnuradio", False)))
@@ -230,6 +239,10 @@ class ControlPanel(QWidget):
             "payload_io": {
                 "tx_file_path": self.widgets["tx_file_path"].text().strip(),
                 "rx_output_dir": self.widgets["rx_output_dir"].text().strip(),
+            },
+            "receiver": {
+                "perfect_sync": self.widgets["perfect_sync"].isChecked(),
+                "perfect_channel_estimation": self.widgets["perfect_channel_estimation"].isChecked(),
             },
             "simulation": {"use_gnuradio": self.widgets["use_gnuradio"].isChecked()},
             "experiments": {"default_batch_experiment": self.widgets["batch_experiment"].currentText()},
