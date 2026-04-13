@@ -1510,6 +1510,19 @@ GUI workflow:
 - press `Run` or `Step Mode`
 - inspect the first PHY chunk in the normal pipeline stages, then inspect the end-stage file recovery block
 
+Ready-made file-transfer scenarios:
+
+```bash
+python main.py --config configs/default.yaml --override configs/scenario_text_transfer.yaml --gui
+python main.py --config configs/default.yaml --override configs/scenario_image_transfer.yaml --gui
+```
+
+These two scenarios are tuned for full-file recovery of the bundled sample inputs:
+
+- `configs/scenario_text_transfer.yaml` uses `input/sample_message.txt`
+- `configs/scenario_image_transfer.yaml` uses `input/sample_image.png`
+- both use `QPSK`, `code rate 0.50`, `AWGN`, `SNR 40 dB`, `perfect_sync = true`, and `perfect_channel_estimation = true`
+
 For file transfer, the application-layer outcome is all-or-nothing:
 
 - if every transport block passes CRC, the RX file is reconstructed byte-perfect
@@ -1539,6 +1552,19 @@ Recommended workflow:
   - `outputs/file_transfer_sweep/file_transfer_sweep.csv`
   - `outputs/file_transfer_sweep/file_transfer_success_vs_snr.png`
   - `outputs/file_transfer_sweep/file_transfer_chunks_failed_vs_snr.png`
+
+To sweep the bundled sample text and sample image together:
+
+```bash
+python run_experiments.py --experiment sample_file_transfer_sweep --config configs/default.yaml --override configs/scenario_sample_file_transfer_sweep.yaml --output-dir outputs
+```
+
+This writes results under:
+
+- `outputs/sample_inputs/file_transfer_sweep/file_transfer_sweep.csv`
+- `outputs/sample_inputs/file_transfer_sweep/file_transfer_success_vs_snr.png`
+- `outputs/sample_inputs/file_transfer_sweep/file_transfer_chunks_failed_vs_snr.png`
+- `outputs/sample_inputs/file_transfer_sweep/summary.md`
 
 ### Use a harsher scenario
 

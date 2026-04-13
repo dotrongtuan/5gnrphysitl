@@ -1,0 +1,30 @@
+link:
+  channel_type: data
+
+modulation:
+  scheme: QPSK
+
+coding:
+  target_rate: 0.50
+
+channel:
+  model: awgn
+  profile: static_near
+  cfo_hz: 0
+  sto_samples: 0
+  phase_noise_std: 0
+  iq_imbalance_db: 0
+
+receiver:
+  perfect_sync: false
+  perfect_channel_estimation: false
+
+payload_io:
+  sweep_files:
+    - input/sample_message.txt
+    - input/sample_image.png
+  rx_output_dir: outputs/rx_files
+
+experiments:
+  default_batch_experiment: sample_file_transfer_sweep
+  file_transfer_snr_sweep_db: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40]

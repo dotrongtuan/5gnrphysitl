@@ -93,6 +93,7 @@ class ControlPanel(QWidget):
                 "doppler_sweep",
                 "impairment_sweep",
                 "file_transfer_sweep",
+                "sample_file_transfer_sweep",
             ]
         )
         self.widgets["scs_khz"] = self._combo(["15", "30", "60"])

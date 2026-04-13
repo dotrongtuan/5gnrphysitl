@@ -11,6 +11,7 @@ from experiments.evm_vs_snr import run_experiment as run_evm_vs_snr
 from experiments.fading_sweep import run_experiment as run_fading_sweep
 from experiments.file_transfer_sweep import run_experiment as run_file_transfer_sweep
 from experiments.impairment_sweep import run_experiment as run_impairment_sweep
+from experiments.sample_file_transfer_sweep import run_experiment as run_sample_file_transfer_sweep
 from utils.io import load_yaml
 from utils.validators import deep_merge, validate_config
 
@@ -24,6 +25,7 @@ EXPERIMENTS = {
     "doppler_sweep": run_doppler_sweep,
     "impairment_sweep": run_impairment_sweep,
     "file_transfer_sweep": run_file_transfer_sweep,
+    "sample_file_transfer_sweep": run_sample_file_transfer_sweep,
 }
 
 

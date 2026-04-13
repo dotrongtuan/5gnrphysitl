@@ -1,0 +1,25 @@
+link:
+  channel_type: data
+
+modulation:
+  scheme: QPSK
+
+coding:
+  target_rate: 0.50
+
+channel:
+  model: awgn
+  profile: static_near
+  snr_db: 40
+  cfo_hz: 0
+  sto_samples: 0
+  phase_noise_std: 0
+  iq_imbalance_db: 0
+
+receiver:
+  perfect_sync: true
+  perfect_channel_estimation: true
+
+payload_io:
+  tx_file_path: input/sample_image.png
+  rx_output_dir: outputs/rx_files
