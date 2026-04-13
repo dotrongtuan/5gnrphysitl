@@ -48,6 +48,8 @@ def test_simulate_text_file_transfer_round_trip(tmp_path: Path) -> None:
     assert transfer["total_chunks"] > 1
     restored = Path(transfer["restored_file_path"])
     assert restored.exists()
+    assert "__rx_" in restored.name
+    assert transfer["received_timestamp_label"] in restored.name
     assert restored.read_bytes() == source.read_bytes()
 
 
@@ -66,4 +68,6 @@ def test_simulate_image_file_transfer_round_trip(tmp_path: Path) -> None:
     assert transfer["media_kind"] == "image"
     restored = Path(transfer["restored_file_path"])
     assert restored.exists()
+    assert "__rx_" in restored.name
+    assert transfer["received_timestamp_label"] in restored.name
     assert restored.read_bytes() == source.read_bytes()

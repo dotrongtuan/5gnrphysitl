@@ -1,0 +1,21 @@
+5G NR PHY STL sample text payload
+=================================
+
+This file is provided as a ready-made TX-side payload for the end-to-end
+file-transfer path in the 5G NR PHY STL project.
+
+Suggested checks:
+
+1. Use this file as `TX file` in the GUI.
+2. Run the PHY pipeline in an AWGN baseline profile.
+3. Inspect the stages `File Source + Packaging`, `Bits`, `CRC`, `Coding`,
+   `Resource Grid + DMRS`, `Channel`, `Decoding`, and `File Reassembly + Write`.
+4. Confirm that the restored file at RX matches the original file byte-for-byte.
+
+This text intentionally includes:
+
+- multiple paragraphs
+- ASCII punctuation
+- enough bytes to create several transport blocks under the default payload size
+
+End of sample payload.

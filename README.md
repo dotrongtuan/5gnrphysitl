@@ -1496,6 +1496,7 @@ Behavior:
 - the package bitstream is split into multiple PHY payload blocks
 - each block is transmitted through the configured PHY/channel path
 - RX reassembles the blocks and writes the recovered file under `payload_io.rx_output_dir`
+- each recovered file name is suffixed with an RX timestamp label, for example `sample_message__rx_20260413_171530_123456.txt`
 - the GUI `PHY Pipeline` adds `File Source + Packaging` and `File Reassembly + Write` stages when file transfer mode is active
 
 GUI workflow:

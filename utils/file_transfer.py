@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 import mimetypes
@@ -41,6 +42,7 @@ class PayloadChunk:
 class RestoredFileResult:
     destination_path: Path
     filename: str
+    received_timestamp_label: str
     media_kind: str
     mime_type: str
     payload_bytes: bytes
@@ -182,19 +184,24 @@ def restore_file_from_package_bits(
     output_root.mkdir(parents=True, exist_ok=True)
 
     original_name = str(header.get("filename", "received_payload.bin"))
+    timestamp_label = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
+    original_path = Path(original_name)
     if preserve_filename:
-        destination = output_root / original_name
+        destination = output_root / f"{original_path.stem}__rx_{timestamp_label}{original_path.suffix}"
     else:
-        destination = output_root / f"{Path(original_name).stem}_rx{Path(original_name).suffix}"
+        destination = output_root / f"{original_path.stem}__rx_{timestamp_label}{original_path.suffix}"
 
-    if destination.exists():
-        destination = output_root / f"{destination.stem}_rx{destination.suffix}"
+    collision_index = 1
+    while destination.exists():
+        destination = output_root / f"{original_path.stem}__rx_{timestamp_label}_{collision_index}{original_path.suffix}"
+        collision_index += 1
 
     destination.write_bytes(payload_bytes)
     payload_sha256 = hashlib.sha256(payload_bytes).hexdigest()
     return RestoredFileResult(
         destination_path=destination,
         filename=original_name,
+        received_timestamp_label=timestamp_label,
         media_kind=str(header.get("media_kind", "binary")),
         mime_type=str(header.get("mime_type", "application/octet-stream")),
         payload_bytes=payload_bytes,
