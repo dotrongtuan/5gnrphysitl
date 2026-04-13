@@ -443,6 +443,7 @@ def simulate_file_transfer(
     recovered_package_bits = join_valid_chunks(chunks, recovered_chunks)
     output_root = output_dir or str(Path(config.get("simulation", {}).get("output_dir", "outputs")) / "rx_files")
     restored_file_path = None
+    restored_snr_label = ""
     restored_timestamp_label = ""
     restored_preview = "n/a"
     restored_size_bytes = 0
@@ -453,8 +454,13 @@ def simulate_file_transfer(
 
     if all(entry["rx"].crc_ok for entry in chunk_results):
         try:
-            restored = restore_file_from_package_bits(recovered_package_bits, output_dir=output_root)
+            restored = restore_file_from_package_bits(
+                recovered_package_bits,
+                output_dir=output_root,
+                snr_db=config.get("channel", {}).get("snr_db"),
+            )
             restored_file_path = str(restored.destination_path)
+            restored_snr_label = restored.snr_label
             restored_timestamp_label = restored.received_timestamp_label
             restored_preview = file_preview_text(restored.media_kind, restored.payload_bytes)
             restored_size_bytes = len(restored.payload_bytes)
@@ -494,6 +500,7 @@ def simulate_file_transfer(
         "success": transfer_success,
         "sha256_match": sha256_match,
         "restored_file_path": restored_file_path,
+        "received_snr_label": restored_snr_label,
         "received_timestamp_label": restored_timestamp_label,
         "restored_size_bytes": restored_size_bytes,
         "restored_media_kind": restored_media_kind,

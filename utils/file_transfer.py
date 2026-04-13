@@ -42,6 +42,7 @@ class PayloadChunk:
 class RestoredFileResult:
     destination_path: Path
     filename: str
+    snr_label: str
     received_timestamp_label: str
     media_kind: str
     mime_type: str
@@ -172,10 +173,30 @@ def file_preview_text(media_kind: str, payload_bytes: bytes, *, max_chars: int =
     return f"{hex_body}{suffix}"
 
 
+def format_snr_label(snr_db: float | int | str | None) -> str:
+    if snr_db is None:
+        return "snr_unknown"
+    try:
+        snr_value = float(snr_db)
+    except (TypeError, ValueError):
+        return "snr_unknown"
+    sign = "m" if snr_value < 0 else ""
+    magnitude = abs(snr_value)
+    integer = int(magnitude)
+    fractional = int(round((magnitude - integer) * 10))
+    if fractional == 10:
+        integer += 1
+        fractional = 0
+    if fractional == 0:
+        return f"snr_{sign}{integer}dB"
+    return f"snr_{sign}{integer}p{fractional}dB"
+
+
 def restore_file_from_package_bits(
     package_bits: np.ndarray,
     *,
     output_dir: str | Path,
+    snr_db: float | int | str | None = None,
     preserve_filename: bool = True,
 ) -> RestoredFileResult:
     package_bytes = bits_to_bytes(package_bits)
@@ -184,16 +205,17 @@ def restore_file_from_package_bits(
     output_root.mkdir(parents=True, exist_ok=True)
 
     original_name = str(header.get("filename", "received_payload.bin"))
+    snr_label = format_snr_label(snr_db)
     timestamp_label = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
     original_path = Path(original_name)
     if preserve_filename:
-        destination = output_root / f"{original_path.stem}__rx_{timestamp_label}{original_path.suffix}"
+        destination = output_root / f"{original_path.stem}__{snr_label}__rx_{timestamp_label}{original_path.suffix}"
     else:
-        destination = output_root / f"{original_path.stem}__rx_{timestamp_label}{original_path.suffix}"
+        destination = output_root / f"{original_path.stem}__{snr_label}__rx_{timestamp_label}{original_path.suffix}"
 
     collision_index = 1
     while destination.exists():
-        destination = output_root / f"{original_path.stem}__rx_{timestamp_label}_{collision_index}{original_path.suffix}"
+        destination = output_root / f"{original_path.stem}__{snr_label}__rx_{timestamp_label}_{collision_index}{original_path.suffix}"
         collision_index += 1
 
     destination.write_bytes(payload_bytes)
@@ -201,6 +223,7 @@ def restore_file_from_package_bits(
     return RestoredFileResult(
         destination_path=destination,
         filename=original_name,
+        snr_label=snr_label,
         received_timestamp_label=timestamp_label,
         media_kind=str(header.get("media_kind", "binary")),
         mime_type=str(header.get("mime_type", "application/octet-stream")),
