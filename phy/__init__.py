@@ -5,6 +5,7 @@ from .modulation import ModulationMapper
 from .numerology import NumerologyConfig
 from .receiver import NrReceiver, RxResult
 from .transmitter import NrTransmitter, TxResult
+from .types import SpatialLayout, TensorViewSpec
 
 __all__ = [
     "LinkKpiSummary",
@@ -13,5 +14,7 @@ __all__ = [
     "NrReceiver",
     "NrTransmitter",
     "RxResult",
+    "SpatialLayout",
+    "TensorViewSpec",
     "TxResult",
 ]

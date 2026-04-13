@@ -28,6 +28,9 @@ class RxResult:
     recovered_bits: np.ndarray
     crc_ok: bool
     corrected_waveform: np.ndarray
+    spatial_layout: object
+    tensor_view_specs: Dict[str, Dict[str, object]]
+    rx_grid_tensor: np.ndarray
     rx_grid: np.ndarray
     rx_symbols: np.ndarray
     equalized_symbols: np.ndarray
@@ -45,19 +48,24 @@ class NrReceiver:
 
     def _ofdm_demodulate(self, waveform: np.ndarray, tx_metadata: TxMetadata, timing_offset: int) -> np.ndarray:
         numerology = tx_metadata.numerology
-        grid = ResourceGrid(numerology, tx_metadata.allocation)
+        grid = ResourceGrid(numerology, tx_metadata.allocation, spatial_layout=tx_metadata.spatial_layout)
         symbol_length = numerology.fft_size + numerology.cp_length
         samples_needed = numerology.symbols_per_slot * symbol_length
-        aligned = waveform[timing_offset : timing_offset + samples_needed]
-        if aligned.size < samples_needed:
-            aligned = np.pad(aligned, (0, samples_needed - aligned.size))
-        for symbol in range(numerology.symbols_per_slot):
-            start = symbol * symbol_length
-            block = aligned[start : start + symbol_length]
-            no_cp = block[numerology.cp_length :]
-            fft_bins = np.fft.fft(no_cp, n=numerology.fft_size)
-            grid.grid[symbol] = grid.ifft_bins_to_active(fft_bins)
-        return grid.grid
+        waveform_tensor = np.asarray(waveform, dtype=np.complex128)
+        if waveform_tensor.ndim == 1:
+            waveform_tensor = waveform_tensor[None, :]
+        rx_ants = min(waveform_tensor.shape[0], tx_metadata.spatial_layout.num_rx_antennas)
+        for rx_ant in range(rx_ants):
+            aligned = waveform_tensor[rx_ant, timing_offset : timing_offset + samples_needed]
+            if aligned.size < samples_needed:
+                aligned = np.pad(aligned, (0, samples_needed - aligned.size))
+            for symbol in range(numerology.symbols_per_slot):
+                start = symbol * symbol_length
+                block = aligned[start : start + symbol_length]
+                no_cp = block[numerology.cp_length :]
+                fft_bins = np.fft.fft(no_cp, n=numerology.fft_size)
+                grid.rx_grid_tensor[rx_ant, symbol] = grid.ifft_bins_to_active(fft_bins)
+        return grid.rx_grid_tensor
 
     def receive(self, waveform: np.ndarray, tx_metadata: TxMetadata, channel_state: Dict | None = None) -> RxResult:
         receiver_cfg = self.config.get("receiver", {})
@@ -83,7 +91,8 @@ class NrReceiver:
             )
 
         corrected = correct_cfo(waveform[timing_offset:], cfo_hz=cfo_estimate_hz, sample_rate=numerology.sample_rate)
-        rx_grid = self._ofdm_demodulate(corrected, tx_metadata, timing_offset=0)
+        rx_grid_tensor = self._ofdm_demodulate(corrected, tx_metadata, timing_offset=0)
+        rx_grid = rx_grid_tensor[0]
 
         if bool(receiver_cfg.get("perfect_channel_estimation", False)) and "reference_channel_grid" in channel_state:
             h_full = np.asarray(channel_state["reference_channel_grid"], dtype=np.complex128)
@@ -142,6 +151,16 @@ class NrReceiver:
             recovered_bits=recovered_bits,
             crc_ok=crc_ok,
             corrected_waveform=corrected,
+            spatial_layout=tx_metadata.spatial_layout,
+            tensor_view_specs={
+                "rx_grid_tensor": {
+                    "name": "rx_grid_tensor",
+                    "axes": ["rx_ant", "symbol", "subcarrier"],
+                    "shape": [int(dim) for dim in rx_grid_tensor.shape],
+                    "description": "Per-receive-antenna FFT grid.",
+                }
+            },
+            rx_grid_tensor=rx_grid_tensor,
             rx_grid=rx_grid,
             rx_symbols=rx_symbols,
             equalized_symbols=equalized,

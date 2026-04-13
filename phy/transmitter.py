@@ -11,6 +11,7 @@ from .modulation import ModulationMapper, bits_per_symbol
 from .numerology import NumerologyConfig
 from .resource_grid import ChannelMapping, ResourceGrid
 from .scrambling import scramble_bits
+from .types import SpatialLayout
 
 
 @dataclass(slots=True)
@@ -18,6 +19,7 @@ class TxMetadata:
     channel_type: str
     numerology: NumerologyConfig
     allocation: FrameAllocation
+    spatial_layout: SpatialLayout
     payload_bits: np.ndarray
     coded_bits: np.ndarray
     scrambled_bits: np.ndarray
@@ -27,9 +29,13 @@ class TxMetadata:
     mapper: ModulationMapper
     mapping: ChannelMapping
     dmrs: Dict[str, np.ndarray]
+    tensor_view_specs: Dict[str, Dict[str, object]]
+    tx_layer_grid: np.ndarray
+    tx_port_grid: np.ndarray
     tx_grid_data: np.ndarray
     tx_grid: np.ndarray
     tx_symbols: np.ndarray
+    tx_port_waveforms: np.ndarray
     sample_rate: float
 
 
@@ -46,6 +52,7 @@ class NrTransmitter:
         self.rng = np.random.default_rng(self.seed)
         self.numerology = NumerologyConfig.from_dict(config["numerology"])
         self.allocation = build_default_allocation(self.numerology, config)
+        self.spatial_layout = SpatialLayout.from_config(config)
 
     def _generate_payload(self, channel_type: str) -> np.ndarray:
         if channel_type.lower() in {"control", "pdcch"}:
@@ -54,14 +61,22 @@ class NrTransmitter:
             size = int(self.config.get("transport_block", {}).get("size_bits", 1024))
         return self.rng.integers(0, 2, size=size, dtype=np.uint8)
 
-    def _ofdm_modulate(self, grid: ResourceGrid) -> np.ndarray:
+    def _ofdm_modulate_view(self, active_grid: np.ndarray) -> np.ndarray:
         waveform = []
         for symbol in range(self.numerology.symbols_per_slot):
-            bins = grid.active_to_ifft_bins(grid.grid[symbol])
+            bins = ResourceGrid(self.numerology, self.allocation, spatial_layout=self.spatial_layout).active_to_ifft_bins(
+                active_grid[symbol]
+            )
             time_symbol = np.fft.ifft(bins, n=self.numerology.fft_size)
             cp = time_symbol[-self.numerology.cp_length :]
             waveform.append(np.concatenate([cp, time_symbol]))
         return np.concatenate(waveform).astype(np.complex128)
+
+    def _ofdm_modulate(self, grid: ResourceGrid) -> np.ndarray:
+        port_waveforms = [
+            self._ofdm_modulate_view(grid.port_view(port_index)) for port_index in range(grid.port_grid.shape[0])
+        ]
+        return np.stack(port_waveforms, axis=0) if port_waveforms else np.zeros((0, 0), dtype=np.complex128)
 
     def transmit(self, channel_type: str = "data", payload_bits: np.ndarray | None = None) -> TxResult:
         channel_type = channel_type.lower()
@@ -77,7 +92,7 @@ class NrTransmitter:
         ).upper()
         mapper = ModulationMapper(modulation_name)
 
-        grid = ResourceGrid(self.numerology, self.allocation)
+        grid = ResourceGrid(self.numerology, self.allocation, spatial_layout=self.spatial_layout)
         mapping = grid.mapping_for(
             channel_type=channel_type,
             bits_per_symbol=bits_per_symbol(modulation_name),
@@ -97,7 +112,8 @@ class NrTransmitter:
         grid.map_symbols(tx_symbols, mapping.positions)
         tx_grid_data = grid.grid.copy()
         dmrs = grid.insert_dmrs(slot=0)
-        waveform = self._ofdm_modulate(grid)
+        port_waveforms = self._ofdm_modulate(grid)
+        waveform = port_waveforms[0].copy()
 
         return TxResult(
             waveform=waveform,
@@ -105,6 +121,7 @@ class NrTransmitter:
                 channel_type=channel_type,
                 numerology=self.numerology,
                 allocation=self.allocation,
+                spatial_layout=self.spatial_layout,
                 payload_bits=payload,
                 coded_bits=coded_bits,
                 scrambled_bits=scrambled_bits,
@@ -114,9 +131,13 @@ class NrTransmitter:
                 mapper=mapper,
                 mapping=mapping,
                 dmrs=dmrs,
+                tensor_view_specs=grid.tensor_view_specs_as_dict(),
+                tx_layer_grid=grid.layer_grid.copy(),
+                tx_port_grid=grid.port_grid.copy(),
                 tx_grid_data=tx_grid_data,
                 tx_grid=grid.grid.copy(),
                 tx_symbols=tx_symbols,
+                tx_port_waveforms=port_waveforms.copy(),
                 sample_rate=self.numerology.sample_rate,
             ),
         )

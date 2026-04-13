@@ -25,6 +25,13 @@ numerology:
   symbols_per_slot: 14
   slots_per_frame: 10
 
+spatial:
+  num_codewords: 1
+  num_layers: 1
+  num_ports: 1
+  num_tx_antennas: 1
+  num_rx_antennas: 1
+
 frame:
   control_symbols: 2
   pdsch_start_symbol: 2

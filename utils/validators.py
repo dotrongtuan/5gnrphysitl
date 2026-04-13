@@ -22,4 +22,9 @@ def validate_config(config: dict) -> dict:
     if modulation not in {"QPSK", "16QAM", "64QAM", "256QAM"}:
         raise ValueError(f"Unsupported modulation scheme: {modulation}")
 
+    spatial = config.get("spatial", {})
+    for key in ("num_codewords", "num_layers", "num_ports", "num_tx_antennas", "num_rx_antennas"):
+        if int(spatial.get(key, 1)) < 1:
+            raise ValueError(f"spatial.{key} must be at least 1.")
+
     return config

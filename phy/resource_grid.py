@@ -8,6 +8,7 @@ import numpy as np
 from .dmrs import dmrs_pattern
 from .frame_structure import FrameAllocation
 from .numerology import NumerologyConfig
+from .types import SpatialLayout, TensorViewSpec
 
 
 @dataclass(slots=True)
@@ -18,19 +19,76 @@ class ChannelMapping:
 
 
 class ResourceGrid:
-    """Single-slot active-subcarrier resource grid."""
+    """Single-slot active-subcarrier resource grid with layer/port/RX views."""
 
-    def __init__(self, numerology: NumerologyConfig, allocation: FrameAllocation) -> None:
+    def __init__(
+        self,
+        numerology: NumerologyConfig,
+        allocation: FrameAllocation,
+        spatial_layout: SpatialLayout | None = None,
+    ) -> None:
         self.numerology = numerology
         self.allocation = allocation
-        self.grid = np.zeros(
-            (numerology.symbols_per_slot, numerology.active_subcarriers),
+        self.spatial_layout = spatial_layout or SpatialLayout()
+        grid_shape = (numerology.symbols_per_slot, numerology.active_subcarriers)
+        self.layer_grid = np.zeros(
+            (self.spatial_layout.num_layers, *grid_shape),
+            dtype=np.complex128,
+        )
+        self.port_grid = np.zeros(
+            (self.spatial_layout.num_ports, *grid_shape),
+            dtype=np.complex128,
+        )
+        self.rx_grid_tensor = np.zeros(
+            (self.spatial_layout.num_rx_antennas, *grid_shape),
             dtype=np.complex128,
         )
 
     @property
     def shape(self) -> tuple[int, int]:
         return self.grid.shape
+
+    @property
+    def grid(self) -> np.ndarray:
+        return self.port_grid[0]
+
+    @grid.setter
+    def grid(self, value: np.ndarray) -> None:
+        self.port_grid[0, :, :] = np.asarray(value, dtype=np.complex128)
+
+    def layer_view(self, layer: int = 0) -> np.ndarray:
+        return self.layer_grid[int(layer)]
+
+    def port_view(self, port: int = 0) -> np.ndarray:
+        return self.port_grid[int(port)]
+
+    def rx_view(self, rx_ant: int = 0) -> np.ndarray:
+        return self.rx_grid_tensor[int(rx_ant)]
+
+    def tensor_view_specs(self) -> dict[str, TensorViewSpec]:
+        return {
+            "layer_grid": TensorViewSpec(
+                name="layer_grid",
+                axes=("layer", "symbol", "subcarrier"),
+                shape=tuple(int(dim) for dim in self.layer_grid.shape),
+                description="Layer-domain resource grid before precoding and port mapping.",
+            ),
+            "port_grid": TensorViewSpec(
+                name="port_grid",
+                axes=("port", "symbol", "subcarrier"),
+                shape=tuple(int(dim) for dim in self.port_grid.shape),
+                description="Antenna-port resource grid after layer-to-port mapping.",
+            ),
+            "rx_grid_tensor": TensorViewSpec(
+                name="rx_grid_tensor",
+                axes=("rx_ant", "symbol", "subcarrier"),
+                shape=tuple(int(dim) for dim in self.rx_grid_tensor.shape),
+                description="Per-receive-antenna FFT grid.",
+            ),
+        }
+
+    def tensor_view_specs_as_dict(self) -> dict[str, dict[str, object]]:
+        return {name: spec.as_dict() for name, spec in self.tensor_view_specs().items()}
 
     def pdcch_positions(self) -> np.ndarray:
         positions = []
@@ -70,29 +128,48 @@ class ResourceGrid:
             modulation=modulation,
         )
 
-    def map_symbols(self, symbols: np.ndarray, positions: np.ndarray) -> None:
+    def map_symbols(
+        self,
+        symbols: np.ndarray,
+        positions: np.ndarray,
+        *,
+        layer: int = 0,
+        port: int = 0,
+    ) -> None:
         positions = np.asarray(positions, dtype=int)
         count = min(symbols.size, positions.shape[0])
-        self.grid[positions[:count, 0], positions[:count, 1]] = symbols[:count]
+        if count <= 0:
+            return
+        self.layer_grid[layer, positions[:count, 0], positions[:count, 1]] = symbols[:count]
+        self.port_grid[port, positions[:count, 0], positions[:count, 1]] = symbols[:count]
 
-    def extract_symbols(self, positions: np.ndarray) -> np.ndarray:
+    def extract_symbols(self, positions: np.ndarray, *, domain: str = "port", index: int = 0) -> np.ndarray:
         positions = np.asarray(positions, dtype=int)
-        return self.grid[positions[:, 0], positions[:, 1]]
+        domain_name = str(domain).lower()
+        if domain_name == "layer":
+            view = self.layer_view(index)
+        elif domain_name == "rx":
+            view = self.rx_view(index)
+        else:
+            view = self.port_view(index)
+        return view[positions[:, 0], positions[:, 1]]
 
-    def insert_dmrs(self, slot: int = 0) -> Dict[str, np.ndarray]:
+    def insert_dmrs(self, slot: int = 0, *, port: int = 0) -> Dict[str, np.ndarray]:
         inserted = []
+        port_view = self.port_view(port)
         for symbol in self.allocation.dmrs_symbols:
             if symbol < self.allocation.pdsch_start_symbol:
                 continue
             subcarriers, sequence = dmrs_pattern(self.numerology.active_subcarriers, dmrs_symbol=symbol, slot=slot)
-            self.grid[symbol, subcarriers] = sequence
+            port_view[symbol, subcarriers] = sequence
             inserted.extend([(symbol, sc) for sc in subcarriers])
         position_array = np.asarray(inserted, dtype=int) if inserted else np.zeros((0, 2), dtype=int)
         return {
             "positions": position_array,
-            "symbols": self.grid[position_array[:, 0], position_array[:, 1]]
+            "symbols": port_view[position_array[:, 0], position_array[:, 1]]
             if inserted
             else np.array([], dtype=np.complex128),
+            "port": int(port),
         }
 
     def active_to_ifft_bins(self, active_symbol: np.ndarray) -> np.ndarray:
