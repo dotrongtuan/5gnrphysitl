@@ -82,6 +82,7 @@ class ControlPanel(QWidget):
         self.widgets["mode"] = self._combo(["data", "control", "compare"])
         self.widgets["modulation"] = self._combo(["QPSK", "16QAM", "64QAM", "256QAM"])
         self.widgets["mcs"] = self._spin(0, 27, 9)
+        self.widgets["capture_slots"] = self._spin(1, 200, 1)
         self.widgets["batch_experiment"] = self._combo(
             [
                 "ber_vs_snr",
@@ -120,6 +121,7 @@ class ControlPanel(QWidget):
         form.addRow("Mode", self.widgets["mode"])
         form.addRow("Modulation", self.widgets["modulation"])
         form.addRow("MCS", self.widgets["mcs"])
+        form.addRow("Capture slots", self.widgets["capture_slots"])
         form.addRow("Batch experiment", self.widgets["batch_experiment"])
         form.addRow("SCS (kHz)", self.widgets["scs_khz"])
         form.addRow("FFT", self.widgets["fft_size"])
@@ -188,6 +190,7 @@ class ControlPanel(QWidget):
         self.widgets["batch_experiment"].setCurrentText(
             str(config.get("experiments", {}).get("default_batch_experiment", "ber_vs_snr"))
         )
+        self.widgets["capture_slots"].setValue(int(config.get("simulation", {}).get("capture_slots", 1)))
         self.widgets["scs_khz"].setCurrentText(str(int(config.get("numerology", {}).get("scs_khz", 30))))
         self.widgets["fft_size"].setCurrentText(str(int(config.get("numerology", {}).get("fft_size", 512))))
         self.widgets["n_rb"].setValue(int(config.get("numerology", {}).get("n_rb", 24)))
@@ -244,7 +247,10 @@ class ControlPanel(QWidget):
                 "perfect_sync": self.widgets["perfect_sync"].isChecked(),
                 "perfect_channel_estimation": self.widgets["perfect_channel_estimation"].isChecked(),
             },
-            "simulation": {"use_gnuradio": self.widgets["use_gnuradio"].isChecked()},
+            "simulation": {
+                "use_gnuradio": self.widgets["use_gnuradio"].isChecked(),
+                "capture_slots": int(self.widgets["capture_slots"].value()),
+            },
             "experiments": {"default_batch_experiment": self.widgets["batch_experiment"].currentText()},
         }
 

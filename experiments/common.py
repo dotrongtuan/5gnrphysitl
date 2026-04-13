@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 import numpy as np
 
@@ -41,6 +41,65 @@ def _payload_size_bits_for_channel(config: Dict, channel_type: str) -> int:
     if channel_type.lower() in {"control", "pdcch"}:
         return int(config.get("control_channel", {}).get("payload_bits", 128))
     return int(config.get("transport_block", {}).get("size_bits", 1024))
+
+
+def _slot_context(numerology, timeline_index: int) -> Dict[str, int | str]:
+    slots_per_frame = max(int(getattr(numerology, "slots_per_frame", 1)), 1)
+    frame_index = int(timeline_index) // slots_per_frame
+    slot_index = int(timeline_index) % slots_per_frame
+    return {
+        "timeline_index": int(timeline_index),
+        "frame_index": frame_index,
+        "slot_index": slot_index,
+        "slots_per_frame": slots_per_frame,
+        "slot_label": f"Frame {frame_index} / Slot {slot_index}",
+    }
+
+
+def _annotate_result_slot(result: Dict[str, Any], timeline_index: int) -> Dict[str, Any]:
+    result["slot_context"] = _slot_context(result["tx"].metadata.numerology, timeline_index)
+    return result
+
+
+def _aggregate_slot_sequence_kpis(slot_results: list[Dict[str, Any]]) -> LinkKpiSummary:
+    if not slot_results:
+        raise ValueError("slot_results must contain at least one slot result.")
+
+    kpi_dicts = [entry["rx"].kpis.as_dict() for entry in slot_results]
+    mean_metric = lambda key: float(np.mean([float(metrics[key]) for metrics in kpi_dicts if key in metrics]))
+    extra_keys = sorted({key for metrics in kpi_dicts for key in metrics.keys()})
+    extra = {
+        key: mean_metric(key)
+        for key in extra_keys
+        if key
+        not in {
+            "ber",
+            "bler",
+            "evm",
+            "throughput_bps",
+            "spectral_efficiency_bps_hz",
+            "estimated_snr_db",
+            "crc_ok",
+            "channel_estimation_mse",
+            "synchronization_error_samples",
+        }
+    }
+    extra["captured_slots"] = float(len(slot_results))
+    extra["slots_crc_passed"] = float(sum(1 for entry in slot_results if entry["rx"].crc_ok))
+    return LinkKpiSummary(
+        ber=mean_metric("ber"),
+        bler=mean_metric("bler"),
+        evm=mean_metric("evm"),
+        throughput_bps=mean_metric("throughput_bps"),
+        spectral_efficiency_bps_hz=mean_metric("spectral_efficiency_bps_hz"),
+        estimated_snr_db=mean_metric("estimated_snr_db"),
+        crc_ok=all(entry["rx"].crc_ok for entry in slot_results),
+        channel_estimation_mse=mean_metric("channel_estimation_mse") if any("channel_estimation_mse" in metrics for metrics in kpi_dicts) else None,
+        synchronization_error_samples=mean_metric("synchronization_error_samples")
+        if any("synchronization_error_samples" in metrics for metrics in kpi_dicts)
+        else None,
+        extra=extra,
+    )
 
 
 def _aggregate_file_transfer_kpis(
@@ -397,7 +456,7 @@ def simulate_link(
         rx_waveform=rx_waveform,
         channel_state=channel_state,
     )
-    return {
+    result = {
         "config": config,
         "tx": tx_result,
         "rx": rx_result,
@@ -408,6 +467,44 @@ def simulate_link(
         "channel_output_waveform": channel_output_waveform,
         "rx_waveform": rx_waveform,
     }
+    return _annotate_result_slot(result, seed_offset)
+
+
+def simulate_link_sequence(
+    config: Dict,
+    *,
+    channel_type: str | None = None,
+    payload_bits: np.ndarray | None = None,
+    num_slots: int | None = None,
+) -> Dict[str, Any]:
+    capture_slots = max(1, int(num_slots or config.get("simulation", {}).get("capture_slots", 1)))
+    slot_results = [
+        simulate_link(
+            config=config,
+            channel_type=channel_type,
+            payload_bits=payload_bits,
+            seed_offset=timeline_index,
+        )
+        for timeline_index in range(capture_slots)
+    ]
+
+    representative = deepcopy(slot_results[0])
+    representative["slot_history"] = [
+        {
+            **entry["slot_context"],
+            "result": entry,
+        }
+        for entry in slot_results
+    ]
+    representative["captured_slots"] = capture_slots
+    representative["kpis"] = _aggregate_slot_sequence_kpis(slot_results)
+    representative["sequence_summary"] = {
+        "captured_slots": capture_slots,
+        "frames_covered": int(max(history["frame_index"] for history in representative["slot_history"]) + 1),
+        "slots_crc_passed": int(sum(entry["rx"].crc_ok for entry in slot_results)),
+        "slots_crc_failed": int(sum(not entry["rx"].crc_ok for entry in slot_results)),
+    }
+    return representative
 
 
 def simulate_file_transfer(
@@ -510,10 +607,27 @@ def simulate_file_transfer(
         "chunk_status": [bool(entry["rx"].crc_ok) for entry in chunk_results],
     }
 
+    for entry in chunk_results:
+        entry["file_transfer"] = transfer_summary
+
     tx_stage, rx_stage = _file_transfer_pipeline_stages(package=package, transfer_summary=transfer_summary)
     representative["pipeline"] = [tx_stage, *representative["pipeline"], rx_stage]
     representative["kpis"] = aggregate_kpis
     representative["file_transfer"] = transfer_summary
+    representative["slot_history"] = [
+        {
+            **entry["slot_context"],
+            "result": entry,
+        }
+        for entry in chunk_results
+    ]
+    representative["captured_slots"] = len(chunk_results)
+    representative["sequence_summary"] = {
+        "captured_slots": len(chunk_results),
+        "frames_covered": int(max(history["frame_index"] for history in representative["slot_history"]) + 1),
+        "slots_crc_passed": transfer_summary["chunks_passed"],
+        "slots_crc_failed": transfer_summary["chunks_failed"],
+    }
     representative["file_transfer_chunks"] = [
         {
             "index": chunk.index,

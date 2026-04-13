@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QMainWindow,
 
 from experiments.ber_vs_snr import run_experiment as run_ber_vs_snr
 from experiments.bler_vs_snr import run_experiment as run_bler_vs_snr
-from experiments.common import simulate_file_transfer, simulate_link
+from experiments.common import simulate_file_transfer, simulate_link_sequence
 from experiments.control_vs_data import run_experiment as run_control_vs_data
 from experiments.doppler_sweep import run_experiment as run_doppler_sweep
 from experiments.evm_vs_snr import run_experiment as run_evm_vs_snr
@@ -71,7 +71,7 @@ class SimulationWorker(QObject):
                     )
                 else:
                     self.log_message.emit("Running single-link simulation.")
-                    result = simulate_link(self.config)
+                    result = simulate_link_sequence(self.config)
                 self.result_ready.emit(result)
         except Exception as exc:  # pragma: no cover - GUI path
             self.error.emit(str(exc))
@@ -164,6 +164,7 @@ class NrPhyResearchApp(QMainWindow):
             "RX sink button": "Enabled" if self.controls.buttons["rx_sink"].isEnabled() else "Disabled",
             "Dash / Plotly": "Available" if self._dash_available() else "Unavailable",
             "GNU Radio loopback requested": "Yes" if bool(self.current_config.get("simulation", {}).get("use_gnuradio", False)) else "No",
+            "Capture slots": int(self.current_config.get("simulation", {}).get("capture_slots", 1)),
             "Perfect sync": "Yes" if bool(self.current_config.get("receiver", {}).get("perfect_sync", False)) else "No",
             "Perfect channel estimation": "Yes" if bool(self.current_config.get("receiver", {}).get("perfect_channel_estimation", False)) else "No",
         }
@@ -175,6 +176,8 @@ class NrPhyResearchApp(QMainWindow):
             status["GNU Radio reason"] = GNURADIO_IMPORT_ERROR or "GNU Radio import failed."
             status["How to enable sinks"] = "Run the GUI from a Conda env with Python 3.10 + GNU Radio 3.10+ installed."
         if result is not None:
+            if result.get("captured_slots"):
+                status["Captured slot results"] = int(result.get("captured_slots", 1))
             channel_state = result.get("channel_state", {})
             if channel_state.get("gnu_radio_requested"):
                 status["GNU Radio loopback used"] = "Yes" if channel_state.get("gnu_radio_used") else "No"
@@ -204,6 +207,7 @@ class NrPhyResearchApp(QMainWindow):
             f"SCS: {numerology.get('scs_khz', 30)} kHz | FFT: {numerology.get('fft_size', 512)}",
             f"Channel: {channel.get('model', 'awgn')} / {channel.get('profile', 'static_near')} | "
             f"SNR: {channel.get('snr_db', 0.0)} dB | Doppler: {channel.get('doppler_hz', 0.0)} Hz",
+            f"Captured slots per run: {simulation.get('capture_slots', 1)}",
             "Use the PHY Pipeline tab to inspect each stage from transport bits through coding, OFDM, channel impairments, synchronization, equalization, and decoding.",
             "Use Step Mode to run once and then replay the chain block-by-block with the pipeline timeline and playback controls.",
         ]
@@ -233,6 +237,11 @@ class NrPhyResearchApp(QMainWindow):
             )
 
         if result is not None:
+            if result.get("sequence_summary"):
+                summary = result["sequence_summary"]
+                notes.append(
+                    f"Multi-slot capture summary: {summary.get('captured_slots', 1)} slots across {summary.get('frames_covered', 1)} frame(s)."
+                )
             channel_state = result.get("channel_state", {})
             if channel_state.get("gnu_radio_requested") and not channel_state.get("gnu_radio_used"):
                 notes.append("GNU Radio loopback request fell back to the Python-only channel path at runtime.")
@@ -366,7 +375,7 @@ class NrPhyResearchApp(QMainWindow):
                     output_dir=str(config.get("payload_io", {}).get("rx_output_dir", "")).strip() or None,
                 )
             else:
-                result = simulate_link(config)
+                result = simulate_link_sequence(config)
         except Exception as exc:  # pragma: no cover - GUI path
             self.handle_error(str(exc))
             return None

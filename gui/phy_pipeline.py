@@ -47,7 +47,10 @@ class PhyPipelinePanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.result: dict[str, Any] | None = None
+        self.active_result: dict[str, Any] | None = None
         self.stages: list[dict[str, Any]] = []
+        self.slot_history: list[dict[str, Any]] = []
+        self.current_slot_record: dict[str, Any] | None = None
         self.current_stage_index = -1
         self.stage_buttons: list[QPushButton] = []
         self.arrow_labels: list[QLabel] = []
@@ -211,8 +214,8 @@ class PhyPipelinePanel(QWidget):
         self.next_button.clicked.connect(self.step_forward)
         self.reset_button.clicked.connect(self.reset_playback)
         self.stage_slider.valueChanged.connect(self._on_stage_slider_changed)
-        self.frame_slider.valueChanged.connect(lambda value: self.frame_value_label.setText(f"Frame {value}"))
-        self.slot_slider.valueChanged.connect(lambda value: self.slot_value_label.setText(f"Slot {value}"))
+        self.frame_slider.valueChanged.connect(self._on_frame_changed)
+        self.slot_slider.valueChanged.connect(self._on_slot_changed)
         self.symbol_slider.valueChanged.connect(self._on_symbol_changed)
         self.artifact_selector.currentIndexChanged.connect(self._render_current_artifact)
 
@@ -228,20 +231,29 @@ class PhyPipelinePanel(QWidget):
 
     def set_result(self, result: dict[str, Any]) -> None:
         self.result = result
-        self.stages = self._build_stage_models(result)
-        self._rebuild_flow()
-        numerology = result["tx"].metadata.numerology
-        self.frame_slider.setRange(0, 0)
-        self.slot_slider.setRange(0, 0)
-        self.symbol_slider.setRange(0, max(numerology.symbols_per_slot - 1, 0))
-        self.stage_slider.setRange(0, max(len(self.stages) - 1, 0))
-        if self.stages:
-            self._set_current_stage(0)
-        else:
+        self.active_result = None
+        self.slot_history = self._extract_slot_history(result)
+        if not self.slot_history:
+            self.stages = []
+            self._rebuild_flow()
             self._clear_view("No PHY stages available.")
+            return
+        frame_indices = [int(entry["frame_index"]) for entry in self.slot_history]
+        self.frame_slider.blockSignals(True)
+        self.frame_slider.setRange(min(frame_indices), max(frame_indices))
+        self.frame_slider.setValue(int(self.slot_history[0]["frame_index"]))
+        self.frame_slider.blockSignals(False)
+        self._select_frame(
+            frame_index=int(self.slot_history[0]["frame_index"]),
+            requested_slot=int(self.slot_history[0]["slot_index"]),
+            preserve_stage=False,
+        )
 
     def set_pipeline(self, pipeline: list[dict[str, Any]]) -> None:
         self.result = None
+        self.active_result = None
+        self.slot_history = []
+        self.current_slot_record = None
         self.stages = [
             {
                 "key": f"pipeline_{index}",
@@ -265,11 +277,113 @@ class PhyPipelinePanel(QWidget):
             for index, stage in enumerate(pipeline)
         ]
         self._rebuild_flow()
+        self.frame_slider.blockSignals(True)
+        self.frame_slider.setRange(0, 0)
+        self.frame_slider.setValue(0)
+        self.frame_slider.blockSignals(False)
+        self.slot_slider.blockSignals(True)
+        self.slot_slider.setRange(0, 0)
+        self.slot_slider.setValue(0)
+        self.slot_slider.blockSignals(False)
+        self.symbol_slider.blockSignals(True)
+        self.symbol_slider.setRange(0, 0)
+        self.symbol_slider.setValue(0)
+        self.symbol_slider.blockSignals(False)
         self.stage_slider.setRange(0, max(len(self.stages) - 1, 0))
         if self.stages:
             self._set_current_stage(0)
         else:
             self._clear_view("No pipeline data is available.")
+
+    def _extract_slot_history(self, result: dict[str, Any]) -> list[dict[str, Any]]:
+        slot_history = result.get("slot_history")
+        if slot_history:
+            normalized = []
+            for entry in slot_history:
+                slot_result = entry.get("result", result)
+                normalized.append(
+                    {
+                        "timeline_index": int(entry.get("timeline_index", 0)),
+                        "frame_index": int(entry.get("frame_index", 0)),
+                        "slot_index": int(entry.get("slot_index", 0)),
+                        "slot_label": str(entry.get("slot_label", "Frame 0 / Slot 0")),
+                        "result": slot_result,
+                    }
+                )
+            normalized.sort(key=lambda entry: int(entry["timeline_index"]))
+            return normalized
+        slot_context = result.get("slot_context", {})
+        return [
+            {
+                "timeline_index": int(slot_context.get("timeline_index", 0)),
+                "frame_index": int(slot_context.get("frame_index", 0)),
+                "slot_index": int(slot_context.get("slot_index", 0)),
+                "slot_label": str(slot_context.get("slot_label", "Frame 0 / Slot 0")),
+                "result": result,
+            }
+        ]
+
+    def _slot_records_for_frame(self, frame_index: int) -> list[dict[str, Any]]:
+        return [entry for entry in self.slot_history if int(entry["frame_index"]) == int(frame_index)]
+
+    def _select_frame(self, frame_index: int, requested_slot: int | None = None, preserve_stage: bool = True) -> None:
+        slots_in_frame = self._slot_records_for_frame(frame_index)
+        self.frame_value_label.setText(f"Frame {frame_index}")
+        if not slots_in_frame:
+            self.slot_slider.blockSignals(True)
+            self.slot_slider.setRange(0, 0)
+            self.slot_slider.setValue(0)
+            self.slot_slider.blockSignals(False)
+            self.slot_value_label.setText("Slot 0")
+            self.stages = []
+            self._rebuild_flow()
+            self._clear_view("No captured slot exists for the selected frame.")
+            return
+
+        available_slots = sorted({int(entry["slot_index"]) for entry in slots_in_frame})
+        target_slot = available_slots[0] if requested_slot not in available_slots else int(requested_slot)
+        self.slot_slider.blockSignals(True)
+        self.slot_slider.setRange(min(available_slots), max(available_slots))
+        self.slot_slider.setValue(target_slot)
+        self.slot_slider.blockSignals(False)
+        self.slot_value_label.setText(f"Slot {target_slot}")
+
+        slot_record = next(entry for entry in slots_in_frame if int(entry["slot_index"]) == target_slot)
+        self._activate_slot_record(slot_record, preserve_stage=preserve_stage)
+
+    def _activate_slot_record(self, slot_record: dict[str, Any], preserve_stage: bool = True) -> None:
+        previous_stage_key = None
+        if preserve_stage and 0 <= self.current_stage_index < len(self.stages):
+            previous_stage_key = self.stages[self.current_stage_index].get("key")
+
+        self.current_slot_record = slot_record
+        self.active_result = slot_record["result"]
+        self.stages = self._build_stage_models(self.active_result)
+        self._rebuild_flow()
+
+        numerology = self.active_result["tx"].metadata.numerology
+        next_symbol = min(self.symbol_slider.value(), max(numerology.symbols_per_slot - 1, 0))
+        self.symbol_slider.blockSignals(True)
+        self.symbol_slider.setRange(0, max(numerology.symbols_per_slot - 1, 0))
+        self.symbol_slider.setValue(next_symbol)
+        self.symbol_slider.blockSignals(False)
+        self.symbol_value_label.setText(f"Symbol {next_symbol}")
+
+        next_stage_index = 0
+        if previous_stage_key is not None:
+            for index, stage in enumerate(self.stages):
+                if stage.get("key") == previous_stage_key:
+                    next_stage_index = index
+                    break
+        self.stage_slider.blockSignals(True)
+        self.stage_slider.setRange(0, max(len(self.stages) - 1, 0))
+        self.stage_slider.setValue(next_stage_index if self.stages else 0)
+        self.stage_slider.blockSignals(False)
+
+        if self.stages:
+            self._set_current_stage(next_stage_index)
+        else:
+            self._clear_view("No PHY stages available for the selected slot.")
 
     def _rebuild_flow(self) -> None:
         while self.flow_row.count():
@@ -566,6 +680,109 @@ class PhyPipelinePanel(QWidget):
 
         self._plot_text(plot_item, "No symbol-level artifact is defined for this stage.")
 
+    def _rebuild_flow(self) -> None:
+        while self.flow_row.count():
+            item = self.flow_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.stage_buttons = []
+        self.arrow_labels = []
+
+        if not self.stages:
+            placeholder = QLabel("Run a single-link simulation to populate the PHY flow.")
+            placeholder.setAlignment(Qt.AlignCenter)
+            self.flow_row.addWidget(placeholder)
+            self.flow_row.addStretch(1)
+            return
+
+        for index, stage in enumerate(self.stages):
+            button = QPushButton(stage["flow_label"])
+            button.setCheckable(True)
+            button.setMinimumSize(145, 64)
+            button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            button.clicked.connect(lambda checked=False, idx=index: self._set_current_stage(idx))
+            self.stage_buttons.append(button)
+            self.flow_row.addWidget(button)
+            if index < len(self.stages) - 1:
+                arrow = QLabel("->")
+                arrow.setAlignment(Qt.AlignCenter)
+                arrow.setMinimumWidth(28)
+                arrow_font = arrow.font()
+                arrow_font.setPointSize(18)
+                arrow_font.setBold(True)
+                arrow.setFont(arrow_font)
+                self.arrow_labels.append(arrow)
+                self.flow_row.addWidget(arrow)
+        self.flow_row.addStretch(1)
+        self._update_flow_styles()
+
+    def _update_flow_styles(self) -> None:
+        for index, button in enumerate(self.stage_buttons):
+            stage = self.stages[index]
+            section = stage.get("section", "Other")
+            color = self.SECTION_COLORS.get(section, "#94a3b8")
+            if index == self.current_stage_index:
+                button.setChecked(True)
+                button.setStyleSheet(
+                    f"QPushButton {{ background-color: {color}; color: #0f172a; border: 2px solid {color}; "
+                    "border-radius: 10px; font-weight: 700; padding: 8px; }}"
+                )
+            elif index < self.current_stage_index:
+                button.setChecked(False)
+                button.setStyleSheet(
+                    f"QPushButton {{ background-color: #0f172a; color: {color}; border: 1px solid {color}; "
+                    "border-radius: 10px; padding: 8px; }}"
+                )
+            else:
+                button.setChecked(False)
+                button.setStyleSheet(
+                    "QPushButton { background-color: #111827; color: #e5e7eb; border: 1px solid #374151; "
+                    "border-radius: 10px; padding: 8px; }"
+                )
+
+        for index, arrow in enumerate(self.arrow_labels):
+            if index == self.current_stage_index:
+                arrow.setStyleSheet("color: #facc15;")
+                arrow.setText("=>")
+            elif index < self.current_stage_index:
+                arrow.setStyleSheet("color: #34d399;")
+                arrow.setText("=>")
+            else:
+                arrow.setStyleSheet("color: #475569;")
+                arrow.setText("->")
+
+    def _on_stage_slider_changed(self, value: int) -> None:
+        self._set_current_stage(value)
+
+    def _on_frame_changed(self, value: int) -> None:
+        self._select_frame(value, requested_slot=self.slot_slider.value(), preserve_stage=True)
+
+    def _on_slot_changed(self, value: int) -> None:
+        self.slot_value_label.setText(f"Slot {value}")
+        self._select_frame(self.frame_slider.value(), requested_slot=value, preserve_stage=True)
+
+    def _render_stage(self) -> None:
+        if not (0 <= self.current_stage_index < len(self.stages)):
+            self._clear_view("No PHY stage selected.")
+            return
+        stage = self.stages[self.current_stage_index]
+        frame_index = int(self.current_slot_record["frame_index"]) if self.current_slot_record else 0
+        slot_index = int(self.current_slot_record["slot_index"]) if self.current_slot_record else 0
+        self.stage_title.setText(
+            f"<b>{stage['section']}</b> | <b>{stage['title']}</b> | Frame {frame_index} / Slot {slot_index} / Symbol {self.symbol_slider.value()}"
+        )
+        self.stage_summary.setPlainText(stage["description"])
+        self._update_metrics(stage["metrics"])
+        self.artifact_selector.blockSignals(True)
+        self.artifact_selector.clear()
+        for artifact in stage["artifacts"]:
+            self.artifact_selector.addItem(str(artifact["name"]))
+        self.artifact_selector.blockSignals(False)
+        if stage["artifacts"]:
+            self.artifact_selector.setCurrentIndex(0)
+        self._render_current_artifact()
+
     def _build_stage_models(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         tx = result["tx"]
         rx = result["rx"]
@@ -666,6 +883,9 @@ class PhyPipelinePanel(QWidget):
         rx = result["rx"]
         config = result["config"]
         channel_state = result["channel_state"]
+        slot_context = result.get("slot_context", {})
+        frame_index = int(slot_context.get("frame_index", 0))
+        slot_index = int(slot_context.get("slot_index", 0))
         tx_meta = tx.metadata
         coding_meta = tx_meta.coding_metadata
         numerology = tx_meta.numerology
@@ -677,7 +897,12 @@ class PhyPipelinePanel(QWidget):
                 "flow_label": "Bits",
                 "title": "Bits",
                 "description": "Original transport block or control payload before any protection or scrambling.",
-                "metrics": {"Bitstream length": tx_meta.payload_bits.size, "Channel type": tx_meta.channel_type, "Frame": 0, "Slot": 0},
+                "metrics": {
+                    "Bitstream length": tx_meta.payload_bits.size,
+                    "Channel type": tx_meta.channel_type,
+                    "Frame": frame_index,
+                    "Slot": slot_index,
+                },
                 "artifacts": [{"name": "Payload bits", "kind": "bits", "payload": tx_meta.payload_bits, "description": "Payload bits entering the PHY chain."}],
             },
             {

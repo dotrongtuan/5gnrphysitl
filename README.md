@@ -307,6 +307,7 @@ The current runtime plot workspace includes:
   - explicit TX, channel, and RX sections arranged as a central processing chain
   - animation controls: `Play`, `Pause`, `Prev`, `Next`, `Reset`
   - timeline scrubber for PHY stages plus frame / slot / symbol controls
+  - `Capture slots` feeds real consecutive slot results into the frame / slot scrubbers, including frame rollover when the captured slot count exceeds `slots_per_frame`
   - per-stage artifact switching for bitstreams, LLRs, constellations, grids, waveforms, spectra, and KPI bars
   - symbol-aware secondary preview for grid / waveform / constellation artifacts
 - `Signal Domain` tab
@@ -335,6 +336,7 @@ Auxiliary instrumentation from the control panel:
 - `RX sink` opens GNU Radio QT time/constellation/frequency/waterfall sinks when GNU Radio is installed
 - `Open Dash` launches a browser-based batch analytics dashboard from the latest batch CSV
 - `Step Mode` runs one simulation and jumps directly into block-by-block playback inside `PHY Pipeline`
+- `Capture slots` sets how many consecutive slots are captured during one single-link run
 
 Configuration controls remain on the left, and KPI / environment status / warnings / logs remain on the right.
 
@@ -1503,6 +1505,7 @@ GUI workflow:
 
 - set `TX file` in the left control panel
 - optionally set `RX output`
+- set `Capture slots` above `1` if you want the `PHY Pipeline` frame / slot scrubbers to walk through consecutive slot captures
 - uncheck `Perfect sync` and `Perfect CE` if you want more realistic error thresholds
 - press `Run` or `Step Mode`
 - inspect the first PHY chunk in the normal pipeline stages, then inspect the end-stage file recovery block
