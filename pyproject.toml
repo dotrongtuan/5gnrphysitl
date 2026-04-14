@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fivegnr-phy-stl"
-version = "1.0.1"
+version = "2.0.0"
 description = "Interactive 5G NR PHY STL teaching and research workbench"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -30,9 +30,13 @@ def validate_config(config: dict) -> dict:
     for key in ("num_codewords", "num_layers", "num_ports", "num_tx_antennas", "num_rx_antennas"):
         if int(spatial.get(key, 1)) < 1:
             raise ValueError(f"spatial.{key} must be at least 1.")
+    if int(spatial.get("num_codewords", 1)) > 2:
+        raise ValueError("P2 baseline supports at most 2 codewords.")
+    if int(spatial.get("num_codewords", 1)) > int(spatial.get("num_layers", 1)):
+        raise ValueError("spatial.num_codewords must not exceed spatial.num_layers.")
     precoding = config.get("precoding", {})
-    if str(precoding.get("mode", "identity")).lower() not in {"identity", "dft"}:
-        raise ValueError("precoding.mode must be one of: identity, dft.")
+    if str(precoding.get("mode", "identity")).lower() not in {"identity", "dft", "type1_sp"}:
+        raise ValueError("precoding.mode must be one of: identity, dft, type1_sp.")
     csi = config.get("csi", {})
     if int(csi.get("max_rank", 1)) < 1:
         raise ValueError("csi.max_rank must be at least 1.")
@@ -42,8 +46,8 @@ def validate_config(config: dict) -> dict:
     normalized_precoders = {str(mode).lower() for mode in candidate_precoders}
     if not normalized_precoders:
         raise ValueError("csi.candidate_precoders must not be empty.")
-    if not normalized_precoders.issubset({"identity", "dft"}):
-        raise ValueError("csi.candidate_precoders must only contain: identity, dft.")
+    if not normalized_precoders.issubset({"identity", "dft", "type1_sp"}):
+        raise ValueError("csi.candidate_precoders must only contain: identity, dft, type1_sp.")
 
     coding = config.get("coding", {})
     if int(coding.get("code_block_payload_bits", 1)) < 1:

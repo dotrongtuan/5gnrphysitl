@@ -1,0 +1,28 @@
+simulation:
+  capture_slots: 4
+
+spatial:
+  num_codewords: 2
+  num_layers: 2
+  num_ports: 2
+  num_tx_antennas: 2
+  num_rx_antennas: 2
+
+precoding:
+  mode: type1_sp
+  pmi: type1sp-r2-p0
+
+csi:
+  enabled: true
+  replay_feedback: true
+  max_rank: 2
+  candidate_precoders: [identity, dft, type1_sp]
+
+channel:
+  model: awgn
+  snr_db: 28.0
+
+receiver:
+  mimo_detector: mmse
+  perfect_sync: true
+  perfect_channel_estimation: true

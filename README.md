@@ -1524,14 +1524,28 @@ Ready-made `P2` CSI-loop baseline scenario:
 python main.py --config configs/default.yaml --override configs/scenario_su_mimo_csi_loop.yaml --gui
 ```
 
+Ready-made `P2` two-codeword SU-MIMO scenario:
+
+```bash
+python main.py --config configs/default.yaml --override configs/scenario_su_mimo_two_codeword.yaml --gui
+```
+
 Current scope of the implemented `P2` baseline:
 
-- `1 codeword`
-- `2x2` and `4x4` SU-MIMO baselines with linear precoding (`identity` or `dft`)
+- `1-2 codewords`
+- `1-4 layers`
+- `2x2` and `4x4` SU-MIMO baselines with linear precoding (`identity`, `dft`, or `type1_sp`)
 - software MIMO channel tensor `H[rx,port,symbol,subcarrier]`
 - detector choices `ZF`, `MMSE`, and `OSIC`
 - `CQI / PMI / RI` feedback baseline with optional replay across captured slots
-- per-layer, per-port, detector, and CSI artifacts exposed in `PHY Pipeline`
+- Type-I single-panel codebook baseline and CSI-driven modulation / target-rate replay
+- per-codeword, per-layer, per-port, detector, and CSI artifacts exposed in `PHY Pipeline`
+
+Batch comparison for open-loop vs closed-loop CSI baseline:
+
+```bash
+python run_experiments.py --experiment csi_loop_compare --config configs/default.yaml --override configs/scenario_su_mimo_csi_loop.yaml --output-dir outputs
+```
 
 Reference-signal baseline:
 

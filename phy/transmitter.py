@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict
 
 import numpy as np
 
 from .coding import CodingMetadata, build_channel_coder
 from .frame_structure import FrameAllocation, build_default_allocation
-from .layer_mapping import layer_map_symbols
+from .layer_mapping import combine_layer_symbols, layer_map_symbols
 from .modulation import ModulationMapper, bits_per_symbol
 from .precoding import build_precoder, apply_precoder
 from .prach import PrachMapper, bits_to_preamble_id, generate_prach_sequence, preamble_id_to_bits
@@ -56,6 +56,14 @@ class TxMetadata:
     prach_root_sequence_index: int | None = None
     prach_cyclic_shift: int | None = None
     prach_sequence: np.ndarray | None = None
+    codeword_payload_bits: tuple[np.ndarray, ...] = field(default_factory=tuple)
+    codeword_coded_bits: tuple[np.ndarray, ...] = field(default_factory=tuple)
+    codeword_scrambled_bits: tuple[np.ndarray, ...] = field(default_factory=tuple)
+    codeword_scrambling_sequences: tuple[np.ndarray, ...] = field(default_factory=tuple)
+    codeword_coding_metadata: tuple[CodingMetadata, ...] = field(default_factory=tuple)
+    codeword_modulation_symbols: tuple[np.ndarray, ...] = field(default_factory=tuple)
+    codeword_tx_symbols: tuple[np.ndarray, ...] = field(default_factory=tuple)
+    codeword_layer_ranges: tuple[tuple[int, int], ...] = field(default_factory=tuple)
 
 
 @dataclass(slots=True)
@@ -73,14 +81,33 @@ class NrTransmitter:
         self.allocation = build_default_allocation(self.numerology, config)
         self.spatial_layout = SpatialLayout.from_config(config)
         self.precoder_spec = build_precoder(config, self.spatial_layout)
-        if self.spatial_layout.num_codewords != 1:
-            raise ValueError("P2 layer-mapping baseline currently supports spatial.num_codewords = 1 only.")
+        if self.spatial_layout.num_codewords not in {1, 2}:
+            raise ValueError("P2 baseline currently supports spatial.num_codewords in {1, 2}.")
+        if self.spatial_layout.num_codewords > self.spatial_layout.num_layers:
+            raise ValueError("P2 baseline requires spatial.num_layers >= spatial.num_codewords.")
         if self.spatial_layout.num_layers > self.spatial_layout.num_ports:
             raise ValueError("P2 layer-mapping baseline requires spatial.num_ports >= spatial.num_layers.")
         if self.spatial_layout.num_ports > self.spatial_layout.num_tx_antennas:
             raise ValueError("P2 layer-mapping baseline requires spatial.num_tx_antennas >= spatial.num_ports.")
         if self.spatial_layout.num_layers > self.spatial_layout.num_rx_antennas:
             raise ValueError("P2 layer-mapping baseline requires spatial.num_rx_antennas >= spatial.num_layers.")
+
+    def _split_payload_across_codewords(self, payload: np.ndarray) -> tuple[np.ndarray, ...]:
+        parts = np.array_split(np.asarray(payload, dtype=np.uint8), int(self.spatial_layout.num_codewords))
+        return tuple(np.asarray(part, dtype=np.uint8).copy() for part in parts)
+
+    def _codeword_layer_ranges(self) -> tuple[tuple[int, int], ...]:
+        codeword_count = int(self.spatial_layout.num_codewords)
+        layer_count = int(self.spatial_layout.num_layers)
+        per_codeword = [layer_count // codeword_count] * codeword_count
+        for index in range(layer_count % codeword_count):
+            per_codeword[index] += 1
+        ranges: list[tuple[int, int]] = []
+        start = 0
+        for count in per_codeword:
+            ranges.append((start, start + int(count)))
+            start += int(count)
+        return tuple(ranges)
 
     def _generate_payload(self, channel_type: str) -> np.ndarray:
         if channel_type.lower() == "prach":
@@ -239,18 +266,63 @@ class NrTransmitter:
             direction=direction,
         )
 
-        coder = build_channel_coder(channel_type=channel_type, config=self.config)
-        coded_bits, coding_metadata = coder.encode(payload_bits=payload, target_length=mapping.bits_capacity)
+        if self.spatial_layout.num_codewords > 1 and channel_type not in {"data", "pdsch", "pusch"}:
+            raise ValueError("P2 two-codeword baseline currently supports data-channel mapping only.")
+
+        codeword_payload_bits = self._split_payload_across_codewords(payload)
+        codeword_layer_ranges = self._codeword_layer_ranges()
+        positions_per_layer = int(mapping.positions.shape[0])
         scrambling_cfg = self.config.get("scrambling", {})
-        scrambled_bits, scrambling_sequence = scramble_bits(
-            coded_bits,
-            nid=int(scrambling_cfg.get("nid", 1)),
-            rnti=int(scrambling_cfg.get("rnti", 0x1234)),
-            q=0 if channel_type in {"data", "pdsch", "pusch"} else 1,
+        codeword_coded_bits = []
+        codeword_coding_metadata = []
+        codeword_scrambled_bits = []
+        codeword_scrambling_sequences = []
+        codeword_modulation_symbols = []
+        codeword_tx_symbols = []
+        layer_symbol_views = []
+        tx_layer_symbols = np.zeros((self.spatial_layout.num_layers, positions_per_layer), dtype=np.complex128)
+        modulation_layer_symbols = np.zeros_like(tx_layer_symbols)
+        for codeword_index, (cw_payload, layer_range) in enumerate(zip(codeword_payload_bits, codeword_layer_ranges)):
+            layer_start, layer_end = layer_range
+            cw_layers = max(layer_end - layer_start, 1)
+            target_length = positions_per_layer * mapper.bits_per_symbol * cw_layers
+            coder = build_channel_coder(channel_type=channel_type, config=self.config)
+            coded_bits, coding_metadata = coder.encode(payload_bits=cw_payload, target_length=target_length)
+            scrambled_bits, scrambling_sequence = scramble_bits(
+                coded_bits,
+                nid=int(scrambling_cfg.get("nid", 1)),
+                rnti=int(scrambling_cfg.get("rnti", 0x1234)),
+                q=codeword_index if channel_type in {"data", "pdsch", "pusch"} else 1,
+            )
+            modulation_symbols = mapper.map_bits(scrambled_bits)
+            cw_tx_symbols = (
+                apply_transform_precoding(modulation_symbols)
+                if transform_precoding_enabled
+                else modulation_symbols.copy()
+            )
+            cw_layer_symbols = layer_map_symbols(cw_tx_symbols, cw_layers)
+            cw_modulation_layer_symbols = layer_map_symbols(modulation_symbols, cw_layers)
+
+            codeword_coded_bits.append(coded_bits.copy())
+            codeword_coding_metadata.append(coding_metadata)
+            codeword_scrambled_bits.append(scrambled_bits.copy())
+            codeword_scrambling_sequences.append(scrambling_sequence.copy())
+            codeword_modulation_symbols.append(modulation_symbols.copy())
+            codeword_tx_symbols.append(cw_tx_symbols.copy())
+            layer_symbol_views.append(cw_layer_symbols.copy())
+            tx_layer_symbols[layer_start:layer_end, : cw_layer_symbols.shape[1]] = cw_layer_symbols
+            modulation_layer_symbols[layer_start:layer_end, : cw_modulation_layer_symbols.shape[1]] = cw_modulation_layer_symbols
+
+        coded_bits = np.concatenate(codeword_coded_bits) if codeword_coded_bits else np.array([], dtype=np.uint8)
+        coding_metadata = codeword_coding_metadata[0]
+        scrambled_bits = np.concatenate(codeword_scrambled_bits) if codeword_scrambled_bits else np.array([], dtype=np.uint8)
+        scrambling_sequence = (
+            np.concatenate(codeword_scrambling_sequences)
+            if codeword_scrambling_sequences
+            else np.array([], dtype=np.uint8)
         )
-        modulation_symbols = mapper.map_bits(scrambled_bits)
-        tx_symbols = apply_transform_precoding(modulation_symbols) if transform_precoding_enabled else modulation_symbols.copy()
-        tx_layer_symbols = layer_map_symbols(tx_symbols, self.spatial_layout.num_layers)
+        modulation_symbols = combine_layer_symbols(modulation_layer_symbols, total_symbols=positions_per_layer * self.spatial_layout.num_layers)
+        tx_symbols = combine_layer_symbols(tx_layer_symbols, total_symbols=positions_per_layer * self.spatial_layout.num_layers)
         tx_port_symbols = apply_precoder(tx_layer_symbols, self.precoder_spec.matrix)
         grid.map_layer_streams(tx_layer_symbols, mapping.positions, port_symbols=tx_port_symbols)
         tx_grid_data = grid.grid.copy()
@@ -336,5 +408,13 @@ class NrTransmitter:
                 tx_symbols=tx_symbols,
                 tx_port_waveforms=port_waveforms.copy(),
                 sample_rate=self.numerology.sample_rate,
+                codeword_payload_bits=tuple(block.copy() for block in codeword_payload_bits),
+                codeword_coded_bits=tuple(block.copy() for block in codeword_coded_bits),
+                codeword_scrambled_bits=tuple(block.copy() for block in codeword_scrambled_bits),
+                codeword_scrambling_sequences=tuple(block.copy() for block in codeword_scrambling_sequences),
+                codeword_coding_metadata=tuple(codeword_coding_metadata),
+                codeword_modulation_symbols=tuple(block.copy() for block in codeword_modulation_symbols),
+                codeword_tx_symbols=tuple(block.copy() for block in codeword_tx_symbols),
+                codeword_layer_ranges=tuple((int(start), int(end)) for start, end in codeword_layer_ranges),
             ),
         )

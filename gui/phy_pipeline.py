@@ -70,7 +70,7 @@ class PhyPipelinePanel(QWidget):
         self.overview_label.setTextFormat(Qt.RichText)
         self.overview_label.setText(
             "<b>Interactive PHY Flow Explorer</b><br>"
-            "Bits -> TB CRC -> Segmentation + CB CRC -> Coding -> Rate Matching -> Scrambling -> QAM Mapping -> (Optional UL Transform Precoding) -> Resource Grid + DMRS -> "
+            "Bits -> TB CRC -> Segmentation + CB CRC -> Coding -> Rate Matching -> Scrambling -> QAM Mapping -> Codeword Split -> Layer Mapping -> Precoding / Port Mapping -> (Optional UL Transform Precoding) -> Resource Grid + DMRS -> "
             "OFDM/IFFT + CP -> Channel/Impairments -> Sync -> FFT -> Channel Estimation -> Equalization -> "
             "(Optional UL Inverse Transform) -> Demapping -> Decoding -> CRC Check<br>"
             "PRACH baseline: Preamble ID -> Zadoff-Chu preamble -> PRACH occasion -> OFDM -> Channel -> Correlation detector -> Preamble decision"
@@ -899,16 +899,8 @@ class PhyPipelinePanel(QWidget):
             tx_meta.spatial_layout.num_layers,
             total_symbols=tx_meta.modulation_symbols.size,
         )
-        payload_with_crc = (
-            np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
-            if coding_meta.transport_block_with_crc is not None
-            else attach_crc(tx_meta.payload_bits, coding_meta.crc_type)
-        )
-        code_blocks_with_crc = (
-            np.concatenate(coding_meta.code_blocks_with_crc)
-            if coding_meta.code_blocks_with_crc
-            else payload_with_crc
-        )
+        payload_with_crc = self._payload_with_crc_bits(tx_meta)
+        code_blocks_with_crc = self._code_blocks_with_crc_bits(tx_meta)
         mother_bits = self._mother_bits(tx_meta)
         allocation_map, dmrs_mask = self._allocation_maps(result)
         tx_spectrum = self._spectrum_payload(tx.waveform, tx_meta.sample_rate)
@@ -944,6 +936,21 @@ class PhyPipelinePanel(QWidget):
             int(np.count_nonzero(np.abs(tx_meta.tx_layer_symbols[layer_index]) > 1e-12))
             for layer_index in range(tx_meta.tx_layer_symbols.shape[0])
         ] if getattr(tx_meta, "tx_layer_symbols", np.zeros((1, 0))).ndim == 2 else [int(tx_meta.modulation_symbols.size)]
+        codeword_payload_lengths = [
+            int(np.asarray(block, dtype=np.uint8).size)
+            for block in (getattr(tx_meta, "codeword_payload_bits", ()) or (tx_meta.payload_bits,))
+        ]
+        codeword_symbol_counts = [
+            int(np.asarray(block, dtype=np.complex128).size)
+            for block in (getattr(tx_meta, "codeword_modulation_symbols", ()) or (tx_meta.modulation_symbols,))
+        ]
+        codeword_layer_ranges = [
+            (int(start), int(end))
+            for start, end in (getattr(tx_meta, "codeword_layer_ranges", ()) or ((0, int(tx_meta.spatial_layout.num_layers)),))
+        ]
+        codeword_crc_status = [
+            bool(value) for value in (getattr(rx, "codeword_crc_ok", ()) or (bool(rx.crc_ok),))
+        ]
         port_symbol_counts = [
             int(np.count_nonzero(np.abs(tx_meta.tx_port_symbols[port_index]) > 1e-12))
             for port_index in range(tx_meta.tx_port_symbols.shape[0])
@@ -993,6 +1000,10 @@ class PhyPipelinePanel(QWidget):
             positions=positions,
             repeated_positions=repeated_positions,
             data_re_mask=data_re_mask,
+            codeword_payload_lengths=codeword_payload_lengths,
+            codeword_symbol_counts=codeword_symbol_counts,
+            codeword_layer_ranges=codeword_layer_ranges,
+            codeword_crc_status=codeword_crc_status,
             layer_symbol_counts=layer_symbol_counts,
             port_symbol_counts=port_symbol_counts,
             port_powers=port_powers,
@@ -1125,6 +1136,10 @@ class PhyPipelinePanel(QWidget):
         positions: np.ndarray,
         repeated_positions: np.ndarray,
         data_re_mask: np.ndarray,
+        codeword_payload_lengths: list[int],
+        codeword_symbol_counts: list[int],
+        codeword_layer_ranges: list[tuple[int, int]],
+        codeword_crc_status: list[bool],
         layer_symbol_counts: list[int],
         port_symbol_counts: list[int],
         port_powers: list[float],
@@ -1186,7 +1201,7 @@ class PhyPipelinePanel(QWidget):
                     {
                         "name": "Code block summary",
                         "kind": "text",
-                        "payload": self._code_block_summary_text(coding_meta),
+                        "payload": self._code_block_summary_text(tx_meta),
                         "description": "Block-by-block summary after segmentation and code-block CRC attachment.",
                     },
                     {
@@ -1283,11 +1298,64 @@ class PhyPipelinePanel(QWidget):
                 ],
             },
             {
+                "key": "codeword_split",
+                "section": "TX",
+                "flow_label": "Codeword",
+                "title": "Codeword Split",
+                "description": "The scheduled payload is divided into one or two independently encoded codewords before their symbol streams are assigned onto layers.",
+                "metrics": {
+                    "Codewords": int(tx_meta.spatial_layout.num_codewords),
+                    "Payload bits / codeword": ", ".join(str(value) for value in codeword_payload_lengths) or "n/a",
+                    "Symbols / codeword": ", ".join(str(value) for value in codeword_symbol_counts) or "n/a",
+                    "Layer ranges": ", ".join(
+                        f"CW{index}: L{start}-L{end - 1}"
+                        for index, (start, end) in enumerate(codeword_layer_ranges)
+                    ) or "n/a",
+                    "RX CRC / codeword": ", ".join(
+                        f"CW{index}: {'OK' if status else 'FAIL'}"
+                        for index, status in enumerate(codeword_crc_status)
+                    ) or "n/a",
+                },
+                "artifacts": [
+                    {
+                        "name": "Per-codeword constellation",
+                        "kind": "constellation_compare",
+                        "payload": {
+                            "series": [
+                                {
+                                    "name": f"Codeword {codeword_index}",
+                                    "points": np.asarray(symbols, dtype=np.complex128),
+                                    "color": color,
+                                }
+                                for codeword_index, (symbols, color) in enumerate(
+                                    zip(
+                                        getattr(tx_meta, "codeword_modulation_symbols", ()) or (tx_meta.modulation_symbols,),
+                                        ["#38bdf8", "#f59e0b"],
+                                    )
+                                )
+                            ]
+                        },
+                        "description": "Constellation-domain symbol streams for each codeword before layer mapping.",
+                    },
+                    {
+                        "name": "Codeword summary",
+                        "kind": "text",
+                        "payload": "\n".join(
+                            f"CW{index}: payload_bits={codeword_payload_lengths[index]}, symbols={codeword_symbol_counts[index]}, "
+                            f"layers={codeword_layer_ranges[index][0]}-{codeword_layer_ranges[index][1] - 1}, "
+                            f"rx_crc={'OK' if codeword_crc_status[min(index, len(codeword_crc_status) - 1)] else 'FAIL'}"
+                            for index in range(len(codeword_payload_lengths))
+                        ),
+                        "description": "Codeword-to-layer allocation summary for the current slot.",
+                    },
+                ],
+            },
+            {
                 "key": "layer_mapping",
                 "section": "TX",
                 "flow_label": "Layers",
                 "title": "Layer Mapping",
-                "description": "The single-codeword symbol stream is distributed across multiple transmission layers. This P2 baseline uses identity layer-to-port mapping, so each layer currently feeds the same-index port.",
+                "description": "Codeword-domain symbol streams are distributed across the configured transmission layers before port mapping. In the current baseline, contiguous layer ranges are assigned to each codeword.",
                 "metrics": {
                     "Codewords": int(tx_meta.spatial_layout.num_codewords),
                     "Layers": int(tx_meta.spatial_layout.num_layers),
@@ -1633,6 +1701,8 @@ class PhyPipelinePanel(QWidget):
                     "CQI": int(csi_feedback.get("cqi", 0)),
                     "PMI": str(csi_feedback.get("pmi", getattr(tx_meta, "precoding_mode", "identity"))),
                     "RI": int(csi_feedback.get("ri", tx_meta.spatial_layout.num_layers)),
+                    "Suggested modulation": str(csi_feedback.get("modulation", tx_meta.modulation)),
+                    "Suggested target rate": f"{float(csi_feedback.get('target_rate', code_rate)):.3f}",
                     "Capacity proxy": f"{float(csi_feedback.get('capacity_proxy_bps_hz', 0.0)):.4g} b/s/Hz",
                 },
                 "artifacts": [
@@ -1900,41 +1970,78 @@ class PhyPipelinePanel(QWidget):
         ]
 
     @staticmethod
-    def _mother_bits(tx_meta) -> np.ndarray:
-        coding_meta = tx_meta.coding_metadata
-        if coding_meta.mother_code_blocks:
-            return np.concatenate(coding_meta.mother_code_blocks).astype(np.uint8)
-        payload_with_crc = (
-            np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
-            if coding_meta.transport_block_with_crc is not None
-            else attach_crc(tx_meta.payload_bits, coding_meta.crc_type)
-        )
-        if tx_meta.channel_type in {"control", "pdcch", "pbch"}:
-            polar_length = int(coding_meta.polar_length or payload_with_crc.size)
-            info_positions = np.asarray(coding_meta.info_positions)
-            u = np.zeros(polar_length, dtype=np.uint8)
-            if info_positions.size:
-                u[info_positions] = payload_with_crc
-            return _polar_transform(u)
-        mother = np.tile(payload_with_crc, int(coding_meta.repetition_factor))
-        if coding_meta.interleaver is not None:
-            mother = mother[np.asarray(coding_meta.interleaver)]
-        return mother.astype(np.uint8)
+    def _codeword_coding_metadatas(tx_meta) -> tuple[Any, ...]:
+        metadatas = tuple(getattr(tx_meta, "codeword_coding_metadata", ()) or ())
+        return metadatas or (tx_meta.coding_metadata,)
+
+    @classmethod
+    def _payload_with_crc_bits(cls, tx_meta) -> np.ndarray:
+        blocks: list[np.ndarray] = []
+        for index, coding_meta in enumerate(cls._codeword_coding_metadatas(tx_meta)):
+            if coding_meta.transport_block_with_crc is not None:
+                blocks.append(np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8))
+            else:
+                payloads = getattr(tx_meta, "codeword_payload_bits", ()) or (tx_meta.payload_bits,)
+                payload = np.asarray(payloads[min(index, len(payloads) - 1)], dtype=np.uint8)
+                blocks.append(attach_crc(payload, coding_meta.crc_type))
+        return np.concatenate(blocks).astype(np.uint8) if blocks else np.array([], dtype=np.uint8)
+
+    @classmethod
+    def _code_blocks_with_crc_bits(cls, tx_meta) -> np.ndarray:
+        blocks: list[np.ndarray] = []
+        for coding_meta in cls._codeword_coding_metadatas(tx_meta):
+            if coding_meta.code_blocks_with_crc:
+                blocks.extend(np.asarray(block, dtype=np.uint8) for block in coding_meta.code_blocks_with_crc)
+            elif coding_meta.transport_block_with_crc is not None:
+                blocks.append(np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8))
+        return np.concatenate(blocks).astype(np.uint8) if blocks else np.array([], dtype=np.uint8)
 
     @staticmethod
-    def _code_block_summary_text(coding_meta) -> str:
-        lines = [
-            f"Code blocks: {int(coding_meta.code_block_count)}",
-            f"TB CRC type: {coding_meta.crc_type}",
-            f"CB CRC type: {coding_meta.code_block_crc_type or 'not applied'}",
-        ]
-        for index in range(int(coding_meta.code_block_count)):
-            payload_length = int(coding_meta.code_block_payload_lengths[index]) if index < len(coding_meta.code_block_payload_lengths) else 0
-            with_crc_length = int(coding_meta.code_block_with_crc_lengths[index]) if index < len(coding_meta.code_block_with_crc_lengths) else payload_length
-            mother_length = int(coding_meta.mother_block_lengths[index]) if index < len(coding_meta.mother_block_lengths) else with_crc_length
-            lines.append(
-                f"CB{index}: payload={payload_length} bits, with_crc={with_crc_length} bits, mother={mother_length} bits"
+    def _mother_bits(tx_meta) -> np.ndarray:
+        mother_blocks: list[np.ndarray] = []
+        metadatas = getattr(tx_meta, "codeword_coding_metadata", ()) or (tx_meta.coding_metadata,)
+        payloads = getattr(tx_meta, "codeword_payload_bits", ()) or (tx_meta.payload_bits,)
+        for index, coding_meta in enumerate(metadatas):
+            if coding_meta.mother_code_blocks:
+                mother_blocks.extend(np.asarray(block, dtype=np.uint8) for block in coding_meta.mother_code_blocks)
+                continue
+            payload = (
+                np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
+                if coding_meta.transport_block_with_crc is not None
+                else attach_crc(np.asarray(payloads[min(index, len(payloads) - 1)], dtype=np.uint8), coding_meta.crc_type)
             )
+            if tx_meta.channel_type in {"control", "pdcch", "pbch"}:
+                polar_length = int(coding_meta.polar_length or payload.size)
+                info_positions = np.asarray(coding_meta.info_positions)
+                u = np.zeros(polar_length, dtype=np.uint8)
+                if info_positions.size:
+                    u[info_positions] = payload
+                mother_blocks.append(_polar_transform(u))
+                continue
+            mother = np.tile(payload, int(coding_meta.repetition_factor))
+            if coding_meta.interleaver is not None:
+                mother = mother[np.asarray(coding_meta.interleaver)]
+            mother_blocks.append(mother.astype(np.uint8))
+        return np.concatenate(mother_blocks).astype(np.uint8) if mother_blocks else np.array([], dtype=np.uint8)
+
+    @classmethod
+    def _code_block_summary_text(cls, tx_meta) -> str:
+        lines = [f"Codewords: {int(tx_meta.spatial_layout.num_codewords)}"]
+        for codeword_index, coding_meta in enumerate(cls._codeword_coding_metadatas(tx_meta)):
+            lines.extend(
+                [
+                    f"CW{codeword_index}: code_blocks={int(coding_meta.code_block_count)}",
+                    f"CW{codeword_index}: TB CRC type={coding_meta.crc_type}",
+                    f"CW{codeword_index}: CB CRC type={coding_meta.code_block_crc_type or 'not applied'}",
+                ]
+            )
+            for block_index in range(int(coding_meta.code_block_count)):
+                payload_length = int(coding_meta.code_block_payload_lengths[block_index]) if block_index < len(coding_meta.code_block_payload_lengths) else 0
+                with_crc_length = int(coding_meta.code_block_with_crc_lengths[block_index]) if block_index < len(coding_meta.code_block_with_crc_lengths) else payload_length
+                mother_length = int(coding_meta.mother_block_lengths[block_index]) if block_index < len(coding_meta.mother_block_lengths) else with_crc_length
+                lines.append(
+                    f"CW{codeword_index}.CB{block_index}: payload={payload_length} bits, with_crc={with_crc_length} bits, mother={mother_length} bits"
+                )
         return "\n".join(lines)
 
     @staticmethod

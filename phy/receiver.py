@@ -68,10 +68,16 @@ class RxResult:
     descrambled_llrs: np.ndarray
     rate_recovered_llrs: np.ndarray
     decoder_input_llrs: np.ndarray
+    recovered_bits_by_codeword: tuple[np.ndarray, ...]
+    llrs_by_codeword: tuple[np.ndarray, ...]
+    descrambled_llrs_by_codeword: tuple[np.ndarray, ...]
+    rate_recovered_llrs_by_codeword: tuple[np.ndarray, ...]
+    decoder_input_llrs_by_codeword: tuple[np.ndarray, ...]
     rate_recovered_code_blocks: tuple[np.ndarray, ...]
     decoder_input_code_blocks: tuple[np.ndarray, ...]
     recovered_code_blocks: tuple[np.ndarray, ...]
     code_block_crc_ok: tuple[bool, ...]
+    codeword_crc_ok: tuple[bool, ...]
     timing_offset: int
     cfo_estimate_hz: float
     kpis: LinkKpiSummary
@@ -84,6 +90,105 @@ class RxResult:
 class NrReceiver:
     def __init__(self, config: Dict) -> None:
         self.config = config
+
+    def _decode_codewords(
+        self,
+        *,
+        detected_layer_symbols: np.ndarray,
+        noise_variance: float,
+        tx_metadata: TxMetadata,
+    ) -> dict[str, object]:
+        codeword_ranges = tuple(getattr(tx_metadata, "codeword_layer_ranges", ()) or ((0, detected_layer_symbols.shape[0]),))
+        codeword_modulation_symbols = tuple(
+            np.asarray(symbols, dtype=np.complex128).reshape(-1)
+            for symbols in (getattr(tx_metadata, "codeword_modulation_symbols", ()) or (tx_metadata.modulation_symbols,))
+        )
+        codeword_scrambling_sequences = tuple(
+            np.asarray(sequence, dtype=np.uint8).reshape(-1)
+            for sequence in (getattr(tx_metadata, "codeword_scrambling_sequences", ()) or (tx_metadata.scrambling_sequence,))
+        )
+        codeword_coding_metadata = tuple(getattr(tx_metadata, "codeword_coding_metadata", ()) or (tx_metadata.coding_metadata,))
+
+        llrs_by_codeword: list[np.ndarray] = []
+        descrambled_llrs_by_codeword: list[np.ndarray] = []
+        rate_recovered_llrs_by_codeword: list[np.ndarray] = []
+        decoder_input_llrs_by_codeword: list[np.ndarray] = []
+        recovered_bits_by_codeword: list[np.ndarray] = []
+        codeword_crc_ok: list[bool] = []
+        rate_recovered_code_blocks: list[np.ndarray] = []
+        decoder_input_code_blocks: list[np.ndarray] = []
+        recovered_code_blocks: list[np.ndarray] = []
+        code_block_crc_ok: list[bool] = []
+
+        coder = build_channel_coder(channel_type=tx_metadata.channel_type, config=self.config)
+        for codeword_index, (layer_start, layer_end) in enumerate(codeword_ranges):
+            layer_slice = np.asarray(
+                detected_layer_symbols[int(layer_start) : int(layer_end)],
+                dtype=np.complex128,
+            )
+            total_symbols = int(codeword_modulation_symbols[min(codeword_index, len(codeword_modulation_symbols) - 1)].size)
+            detected_symbols = combine_layer_symbols(layer_slice, total_symbols=total_symbols)
+            llrs = tx_metadata.mapper.demap_llr(detected_symbols, noise_variance=max(noise_variance, 1e-9))
+            descrambled_llrs = descramble_llrs(
+                llrs,
+                codeword_scrambling_sequences[min(codeword_index, len(codeword_scrambling_sequences) - 1)],
+            )
+            coding_metadata = codeword_coding_metadata[min(codeword_index, len(codeword_coding_metadata) - 1)]
+            rate_recovered_llrs = rate_recover_llrs(descrambled_llrs, coding_metadata)
+
+            if hasattr(coder, "decode_with_trace"):
+                recovered_bits, crc_ok, decode_trace = coder.decode_with_trace(descrambled_llrs, coding_metadata)
+            else:  # pragma: no cover
+                recovered_bits, crc_ok = coder.decode(descrambled_llrs, coding_metadata)
+                decode_trace = None
+
+            llrs_by_codeword.append(llrs.copy())
+            descrambled_llrs_by_codeword.append(descrambled_llrs.copy())
+            recovered_bits_by_codeword.append(np.asarray(recovered_bits, dtype=np.uint8).copy())
+            codeword_crc_ok.append(bool(crc_ok))
+
+            if decode_trace is not None:
+                cw_rate_recovered = (
+                    np.concatenate(decode_trace.rate_recovered_blocks)
+                    if decode_trace.rate_recovered_blocks
+                    else np.array([], dtype=np.float64)
+                )
+                cw_decoder_input = (
+                    np.concatenate(decode_trace.decoder_input_blocks)
+                    if decode_trace.decoder_input_blocks
+                    else np.array([], dtype=np.float64)
+                )
+                rate_recovered_code_blocks.extend(block.copy() for block in decode_trace.rate_recovered_blocks)
+                decoder_input_code_blocks.extend(block.copy() for block in decode_trace.decoder_input_blocks)
+                recovered_code_blocks.extend(block.copy() for block in decode_trace.recovered_code_blocks)
+                code_block_crc_ok.extend(bool(value) for value in decode_trace.code_block_crc_ok)
+            else:
+                cw_rate_recovered = rate_recovered_llrs.copy()
+                cw_decoder_input = rate_recovered_llrs.copy()
+
+            rate_recovered_llrs_by_codeword.append(cw_rate_recovered.copy())
+            decoder_input_llrs_by_codeword.append(cw_decoder_input.copy())
+
+        concat_float = lambda values: np.concatenate(values) if values else np.array([], dtype=np.float64)
+        concat_bits = lambda values: np.concatenate(values) if values else np.array([], dtype=np.uint8)
+        return {
+            "llrs": concat_float(llrs_by_codeword),
+            "descrambled_llrs": concat_float(descrambled_llrs_by_codeword),
+            "rate_recovered_llrs": concat_float(rate_recovered_llrs_by_codeword),
+            "decoder_input_llrs": concat_float(decoder_input_llrs_by_codeword),
+            "recovered_bits": concat_bits(recovered_bits_by_codeword),
+            "crc_ok": bool(all(codeword_crc_ok)),
+            "recovered_bits_by_codeword": tuple(block.copy() for block in recovered_bits_by_codeword),
+            "llrs_by_codeword": tuple(block.copy() for block in llrs_by_codeword),
+            "descrambled_llrs_by_codeword": tuple(block.copy() for block in descrambled_llrs_by_codeword),
+            "rate_recovered_llrs_by_codeword": tuple(block.copy() for block in rate_recovered_llrs_by_codeword),
+            "decoder_input_llrs_by_codeword": tuple(block.copy() for block in decoder_input_llrs_by_codeword),
+            "rate_recovered_code_blocks": tuple(block.copy() for block in rate_recovered_code_blocks),
+            "decoder_input_code_blocks": tuple(block.copy() for block in decoder_input_code_blocks),
+            "recovered_code_blocks": tuple(block.copy() for block in recovered_code_blocks),
+            "code_block_crc_ok": tuple(code_block_crc_ok),
+            "codeword_crc_ok": tuple(codeword_crc_ok),
+        }
 
     def _ofdm_demodulate(self, waveform: np.ndarray, tx_metadata: TxMetadata, timing_offset: int) -> Dict[str, np.ndarray]:
         numerology = tx_metadata.numerology
@@ -254,10 +359,16 @@ class NrReceiver:
             descrambled_llrs=np.array([], dtype=np.float64),
             rate_recovered_llrs=np.array([], dtype=np.float64),
             decoder_input_llrs=np.array([], dtype=np.float64),
+            recovered_bits_by_codeword=(recovered_bits.copy(),),
+            llrs_by_codeword=(),
+            descrambled_llrs_by_codeword=(),
+            rate_recovered_llrs_by_codeword=(),
+            decoder_input_llrs_by_codeword=(),
             rate_recovered_code_blocks=(),
             decoder_input_code_blocks=(),
             recovered_code_blocks=(),
             code_block_crc_ok=(),
+            codeword_crc_ok=(crc_ok,),
             timing_offset=timing_offset,
             cfo_estimate_hz=cfo_estimate_hz,
             kpis=kpis,
@@ -447,38 +558,27 @@ class NrReceiver:
         rx_symbols = combine_layer_symbols(rx_layer_symbols, total_symbols=tx_metadata.modulation_symbols.size)
         equalized = combine_layer_symbols(equalized_layer_symbols, total_symbols=tx_metadata.modulation_symbols.size)
         detected_symbols = combine_layer_symbols(detected_layer_symbols, total_symbols=tx_metadata.modulation_symbols.size)
-        llrs = tx_metadata.mapper.demap_llr(detected_symbols, noise_variance=max(noise_variance, 1e-9))
-        descrambled_llrs = descramble_llrs(llrs, tx_metadata.scrambling_sequence)
-        rate_recovered_llrs = rate_recover_llrs(descrambled_llrs, tx_metadata.coding_metadata)
-        decoder_input_llrs = rate_recovered_llrs.copy()
-
-        coder = build_channel_coder(channel_type=tx_metadata.channel_type, config=self.config)
-        if hasattr(coder, "decode_with_trace"):
-            recovered_bits, crc_ok, decode_trace = coder.decode_with_trace(descrambled_llrs, tx_metadata.coding_metadata)
-        else:  # pragma: no cover
-            recovered_bits, crc_ok = coder.decode(descrambled_llrs, tx_metadata.coding_metadata)
-            decode_trace = None
-
-        if decode_trace is not None:
-            rate_recovered_llrs = (
-                np.concatenate(decode_trace.rate_recovered_blocks)
-                if decode_trace.rate_recovered_blocks
-                else np.array([], dtype=np.float64)
-            )
-            decoder_input_llrs = (
-                np.concatenate(decode_trace.decoder_input_blocks)
-                if decode_trace.decoder_input_blocks
-                else np.array([], dtype=np.float64)
-            )
-            rate_recovered_code_blocks = tuple(block.copy() for block in decode_trace.rate_recovered_blocks)
-            decoder_input_code_blocks = tuple(block.copy() for block in decode_trace.decoder_input_blocks)
-            recovered_code_blocks = tuple(block.copy() for block in decode_trace.recovered_code_blocks)
-            code_block_crc_ok = tuple(bool(value) for value in decode_trace.code_block_crc_ok)
-        else:
-            rate_recovered_code_blocks = ()
-            decoder_input_code_blocks = ()
-            recovered_code_blocks = ()
-            code_block_crc_ok = ()
+        codeword_decode = self._decode_codewords(
+            detected_layer_symbols=detected_layer_symbols,
+            noise_variance=noise_variance,
+            tx_metadata=tx_metadata,
+        )
+        llrs = np.asarray(codeword_decode["llrs"], dtype=np.float64)
+        descrambled_llrs = np.asarray(codeword_decode["descrambled_llrs"], dtype=np.float64)
+        rate_recovered_llrs = np.asarray(codeword_decode["rate_recovered_llrs"], dtype=np.float64)
+        decoder_input_llrs = np.asarray(codeword_decode["decoder_input_llrs"], dtype=np.float64)
+        recovered_bits = np.asarray(codeword_decode["recovered_bits"], dtype=np.uint8)
+        crc_ok = bool(codeword_decode["crc_ok"])
+        recovered_bits_by_codeword = tuple(codeword_decode["recovered_bits_by_codeword"])
+        llrs_by_codeword = tuple(codeword_decode["llrs_by_codeword"])
+        descrambled_llrs_by_codeword = tuple(codeword_decode["descrambled_llrs_by_codeword"])
+        rate_recovered_llrs_by_codeword = tuple(codeword_decode["rate_recovered_llrs_by_codeword"])
+        decoder_input_llrs_by_codeword = tuple(codeword_decode["decoder_input_llrs_by_codeword"])
+        rate_recovered_code_blocks = tuple(codeword_decode["rate_recovered_code_blocks"])
+        decoder_input_code_blocks = tuple(codeword_decode["decoder_input_code_blocks"])
+        recovered_code_blocks = tuple(codeword_decode["recovered_code_blocks"])
+        code_block_crc_ok = tuple(codeword_decode["code_block_crc_ok"])
+        codeword_crc_ok = tuple(codeword_decode["codeword_crc_ok"])
 
         reference_symbols = tx_metadata.modulation_symbols
         ber = bit_error_rate(tx_metadata.payload_bits, recovered_bits)
@@ -563,10 +663,16 @@ class NrReceiver:
             descrambled_llrs=descrambled_llrs,
             rate_recovered_llrs=rate_recovered_llrs,
             decoder_input_llrs=decoder_input_llrs,
+            recovered_bits_by_codeword=recovered_bits_by_codeword,
+            llrs_by_codeword=llrs_by_codeword,
+            descrambled_llrs_by_codeword=descrambled_llrs_by_codeword,
+            rate_recovered_llrs_by_codeword=rate_recovered_llrs_by_codeword,
+            decoder_input_llrs_by_codeword=decoder_input_llrs_by_codeword,
             rate_recovered_code_blocks=rate_recovered_code_blocks,
             decoder_input_code_blocks=decoder_input_code_blocks,
             recovered_code_blocks=recovered_code_blocks,
             code_block_crc_ok=code_block_crc_ok,
+            codeword_crc_ok=codeword_crc_ok,
             timing_offset=timing_offset,
             cfo_estimate_hz=cfo_estimate_hz,
             kpis=kpis,

@@ -114,7 +114,13 @@ def _apply_csi_feedback_to_config(config: Dict[str, Any], feedback: dict[str, ob
     updated = deepcopy(config)
     updated.setdefault("precoding", {})
     updated.setdefault("spatial", {})
-    updated["precoding"]["mode"] = str(feedback.get("pmi", updated["precoding"].get("mode", "identity"))).lower()
+    selected_pmi = str(feedback.get("pmi", updated["precoding"].get("mode", "identity"))).lower()
+    if selected_pmi.startswith("type1sp-"):
+        updated["precoding"]["mode"] = "type1_sp"
+        updated["precoding"]["pmi"] = selected_pmi
+    else:
+        updated["precoding"]["mode"] = selected_pmi
+        updated["precoding"].pop("pmi", None)
     if allow_rank_update:
         rank = int(feedback.get("ri", updated["spatial"].get("num_layers", 1)))
         max_rank = min(
@@ -123,6 +129,10 @@ def _apply_csi_feedback_to_config(config: Dict[str, Any], feedback: dict[str, ob
             int(updated["csi"].get("max_rank", rank)) if "csi" in updated else rank,
         )
         updated["spatial"]["num_layers"] = max(1, min(rank, max_rank))
+    updated.setdefault("modulation", {})
+    updated.setdefault("coding", {})
+    updated["modulation"]["scheme"] = str(feedback.get("modulation", updated["modulation"].get("scheme", "QPSK"))).upper()
+    updated["coding"]["target_rate"] = float(feedback.get("target_rate", updated["coding"].get("target_rate", 0.5)))
     return updated
 
 
@@ -308,20 +318,40 @@ def _build_pipeline_trace(
             mapping_label = "SSB/PBCH-style"
         else:
             mapping_label = "PDSCH-style"
-    coding_meta = tx_meta.coding_metadata
-    transport_with_crc = (
+    coding_metadatas = tuple(getattr(tx_meta, "codeword_coding_metadata", ()) or (tx_meta.coding_metadata,))
+    transport_with_crc_parts = [
         np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
         if coding_meta.transport_block_with_crc is not None
+        else np.array([], dtype=np.uint8)
+        for coding_meta in coding_metadatas
+    ]
+    transport_with_crc = (
+        np.concatenate([part for part in transport_with_crc_parts if part.size]).astype(np.uint8)
+        if any(part.size for part in transport_with_crc_parts)
         else tx_meta.coded_bits
     )
-    code_blocks_with_crc = (
-        np.concatenate(coding_meta.code_blocks_with_crc)
+    code_blocks_with_crc_parts = [
+        np.concatenate(coding_meta.code_blocks_with_crc).astype(np.uint8)
         if coding_meta.code_blocks_with_crc
+        else np.asarray(coding_meta.transport_block_with_crc, dtype=np.uint8)
+        if coding_meta.transport_block_with_crc is not None
+        else np.array([], dtype=np.uint8)
+        for coding_meta in coding_metadatas
+    ]
+    code_blocks_with_crc = (
+        np.concatenate([part for part in code_blocks_with_crc_parts if part.size]).astype(np.uint8)
+        if any(part.size for part in code_blocks_with_crc_parts)
         else transport_with_crc
     )
-    mother_bits = (
-        np.concatenate(coding_meta.mother_code_blocks)
+    mother_bits_parts = [
+        np.concatenate(coding_meta.mother_code_blocks).astype(np.uint8)
         if coding_meta.mother_code_blocks
+        else np.array([], dtype=np.uint8)
+        for coding_meta in coding_metadatas
+    ]
+    mother_bits = (
+        np.concatenate([part for part in mother_bits_parts if part.size]).astype(np.uint8)
+        if any(part.size for part in mother_bits_parts)
         else tx_meta.coded_bits
     )
 
@@ -344,7 +374,11 @@ def _build_pipeline_trace(
             "artifact_type": "bits",
             "input_shape": [int(dim) for dim in np.asarray(tx_meta.payload_bits).shape],
             "output_shape": [int(dim) for dim in np.asarray(tx_meta.payload_bits).shape],
-            "notes": "Current runtime maps all content to codeword 0, layer 0, port 0.",
+            "notes": (
+                f"Codewords: {int(tx_meta.spatial_layout.num_codewords)} | "
+                f"Layers: {int(tx_meta.spatial_layout.num_layers)} | "
+                f"Ports: {int(tx_meta.spatial_layout.num_ports)}"
+            ),
         },
         {
             "section": "TX",
@@ -411,6 +445,26 @@ def _build_pipeline_trace(
             "artifact_type": "constellation",
             "input_shape": [int(dim) for dim in np.asarray(tx_meta.scrambled_bits).shape],
             "output_shape": [int(dim) for dim in np.asarray(tx_meta.modulation_symbols).shape],
+        },
+        {
+            "section": "TX",
+            "stage": "Codeword partitioning",
+            "domain": "symbols",
+            "description": "One or two codewords are independently encoded and mapped before their symbol streams are assigned onto transmission layers.",
+            "preview_kind": "constellation",
+            "data": np.asarray(
+                tx_meta.codeword_modulation_symbols[0]
+                if getattr(tx_meta, "codeword_modulation_symbols", ())
+                else tx_meta.modulation_symbols,
+                dtype=np.complex128,
+            ),
+            "artifact_type": "constellation",
+            "input_shape": [int(dim) for dim in np.asarray(tx_meta.modulation_symbols).shape],
+            "output_shape": [int(dim) for dim in np.asarray(tx_meta.tx_symbols).shape],
+            "notes": " | ".join(
+                f"CW{index}: layers {start}-{end - 1}, payload={int(np.asarray(tx_meta.codeword_payload_bits[index]).size)} bits, symbols={int(np.asarray(tx_meta.codeword_modulation_symbols[index]).size)}"
+                for index, (start, end) in enumerate(getattr(tx_meta, "codeword_layer_ranges", ()) or ((0, int(tx_meta.spatial_layout.num_layers)),))
+            ),
         },
         {
             "section": "TX",
@@ -1182,7 +1236,10 @@ def simulate_link_sequence(
             {
                 "timeline_index": int(timeline_index),
                 "scheduled_layers": int(slot_result["tx"].metadata.spatial_layout.num_layers),
-                "scheduled_precoding_mode": str(slot_result["tx"].metadata.precoding_mode),
+                "scheduled_precoding_mode": str(slot_result["config"].get("precoding", {}).get("mode", "identity")),
+                "scheduled_pmi": str(slot_result["config"].get("precoding", {}).get("pmi", "n/a")),
+                "scheduled_modulation": str(slot_result["config"].get("modulation", {}).get("scheme", "QPSK")),
+                "scheduled_target_rate": float(slot_result["config"].get("coding", {}).get("target_rate", 0.5)),
             }
         )
         if slot_result.get("csi_feedback") is not None:

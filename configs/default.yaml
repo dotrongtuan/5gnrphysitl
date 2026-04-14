@@ -37,12 +37,13 @@ spatial:
 
 precoding:
   mode: identity
+  pmi: type1sp-r1-p0
 
 csi:
   enabled: true
   replay_feedback: false
   max_rank: 4
-  candidate_precoders: [identity, dft]
+  candidate_precoders: [identity, dft, type1_sp]
   cqi_snr_offset_db: 0.0
 
 frame:

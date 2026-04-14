@@ -95,6 +95,7 @@ class ControlPanel(QWidget):
                 "bler_vs_snr",
                 "evm_vs_snr",
                 "control_vs_data",
+                "csi_loop_compare",
                 "fading_sweep",
                 "doppler_sweep",
                 "impairment_sweep",

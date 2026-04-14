@@ -193,6 +193,8 @@ class NrPhyResearchApp(QMainWindow):
                 status["Latest CQI"] = int(csi_feedback.get("cqi", 0))
                 status["Latest PMI"] = str(csi_feedback.get("pmi", "n/a"))
                 status["Latest RI"] = int(csi_feedback.get("ri", 1))
+                status["Latest modulation hint"] = str(csi_feedback.get("modulation", "n/a"))
+                status["Latest target-rate hint"] = f"{float(csi_feedback.get('target_rate', 0.0)):.3f}"
             channel_state = result.get("channel_state", {})
             if channel_state.get("gnu_radio_requested"):
                 status["GNU Radio loopback used"] = "Yes" if channel_state.get("gnu_radio_used") else "No"

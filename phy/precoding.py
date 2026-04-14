@@ -14,6 +14,35 @@ class PrecoderSpec:
     matrix: np.ndarray
 
 
+def build_type1_single_panel_codebook(num_ports: int, num_layers: int) -> dict[str, np.ndarray]:
+    port_count = int(num_ports)
+    layer_count = int(num_layers)
+    if port_count < 1 or layer_count < 1:
+        raise ValueError("num_ports and num_layers must be at least 1 for Type-I codebooks.")
+
+    dft = build_precoder_matrix("dft", num_ports=port_count, num_layers=port_count)
+    entries: dict[str, np.ndarray] = {}
+
+    if port_count == 2 and layer_count == 1:
+        entries["type1sp-r1-p0"] = (np.array([[1.0], [1.0]], dtype=np.complex128) / np.sqrt(2.0))
+        entries["type1sp-r1-p1"] = (np.array([[1.0], [-1.0]], dtype=np.complex128) / np.sqrt(2.0))
+        return entries
+
+    if port_count == 2 and layer_count == 2:
+        entries["type1sp-r2-p0"] = np.eye(2, dtype=np.complex128)
+        entries["type1sp-r2-p1"] = dft[:, :2]
+        return entries
+
+    if port_count == 4:
+        for shift in range(port_count):
+            indices = [(shift + layer_index) % port_count for layer_index in range(layer_count)]
+            entries[f"type1sp-r{layer_count}-p{shift}"] = dft[:, indices]
+        return entries
+
+    entries[f"type1sp-r{layer_count}-p0"] = build_precoder_matrix("dft", num_ports=port_count, num_layers=layer_count)
+    return entries
+
+
 def build_precoder_matrix(mode: str, num_ports: int, num_layers: int) -> np.ndarray:
     resolved_mode = str(mode).lower()
     port_count = int(num_ports)
@@ -32,6 +61,10 @@ def build_precoder_matrix(mode: str, num_ports: int, num_layers: int) -> np.ndar
         matrix /= np.sqrt(max(layer_count, 1))
         return matrix.astype(np.complex128)
 
+    if resolved_mode == "type1_sp":
+        codebook = build_type1_single_panel_codebook(port_count, layer_count)
+        return next(iter(codebook.values())).copy()
+
     raise ValueError(f"Unsupported precoding.mode: {resolved_mode}")
 
 
@@ -40,6 +73,12 @@ def build_precoder(config: Mapping[str, Any] | None, spatial_layout: SpatialLayo
     mode = str(precoding_cfg.get("mode", "identity")).lower()
     num_layers = int(spatial_layout.num_layers)
     num_ports = int(spatial_layout.num_ports)
+    if mode == "type1_sp":
+        codebook = build_type1_single_panel_codebook(num_ports=num_ports, num_layers=num_layers)
+        pmi = str(precoding_cfg.get("pmi", next(iter(codebook.keys()))))
+        if pmi not in codebook:
+            raise ValueError(f"Unsupported precoding.pmi for type1_sp: {pmi}")
+        return PrecoderSpec(mode=f"type1_sp:{pmi}", matrix=codebook[pmi].copy())
     return PrecoderSpec(mode=mode, matrix=build_precoder_matrix(mode, num_ports=num_ports, num_layers=num_layers))
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from experiments.ber_vs_snr import run_experiment as run_ber_vs_snr
 from experiments.bler_vs_snr import run_experiment as run_bler_vs_snr
 from experiments.control_vs_data import run_experiment as run_control_vs_data
+from experiments.csi_loop_compare import run_experiment as run_csi_loop_compare
 from experiments.doppler_sweep import run_experiment as run_doppler_sweep
 from experiments.evm_vs_snr import run_experiment as run_evm_vs_snr
 from experiments.fading_sweep import run_experiment as run_fading_sweep
@@ -21,6 +22,7 @@ EXPERIMENTS = {
     "bler_vs_snr": run_bler_vs_snr,
     "evm_vs_snr": run_evm_vs_snr,
     "control_vs_data": run_control_vs_data,
+    "csi_loop_compare": run_csi_loop_compare,
     "fading_sweep": run_fading_sweep,
     "doppler_sweep": run_doppler_sweep,
     "impairment_sweep": run_impairment_sweep,
