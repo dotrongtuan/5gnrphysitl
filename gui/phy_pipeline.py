@@ -954,21 +954,9 @@ class PhyPipelinePanel(QWidget):
             else 0.0
             for port_index in range(len(port_symbol_counts))
         ]
-        port_gains = []
-        for port_index in range(min(rx.equalized_port_symbols.shape[0], tx_meta.tx_port_symbols.shape[0])):
-            reference_port = tx_meta.tx_port_symbols[port_index]
-            recovered_port = rx.equalized_port_symbols[port_index]
-            count = min(reference_port.size, recovered_port.size)
-            reference_view = reference_port[:count]
-            recovered_view = recovered_port[:count]
-            mask = np.abs(reference_view) > 1e-9
-            if not np.any(mask):
-                port_gains.append(0.0 + 0.0j)
-            else:
-                port_gains.append(np.mean(recovered_view[mask] / reference_view[mask]))
         effective_channel_matrix = (
-            np.diag(np.asarray(port_gains, dtype=np.complex128)) @ np.asarray(tx_meta.precoder_matrix, dtype=np.complex128)
-            if port_gains
+            np.mean(rx.effective_channel_tensor, axis=(2, 3))
+            if getattr(rx, "effective_channel_tensor", np.zeros((0, 0, 0, 0))).size
             else np.zeros_like(np.asarray(tx_meta.precoder_matrix, dtype=np.complex128))
         )
 
@@ -1568,15 +1556,15 @@ class PhyPipelinePanel(QWidget):
                 ],
             },
             {
-                "key": "layer_recovery",
+                "key": "mimo_detection",
                 "section": "RX",
-                "flow_label": "De-Precode",
-                "title": "Layer Recovery / De-precoding",
-                "description": "Equalized port-domain symbols are projected back into the layer domain using the pseudo-inverse of the precoder, creating the layer-domain streams used by demapping.",
+                "flow_label": "Detector",
+                "title": "MIMO Detection",
+                "description": "Per-RE receive-antenna observations are processed with the configured SU-MIMO detector to recover port-domain symbols under the estimated channel tensor.",
                 "metrics": {
-                    "Recovered layers": int(rx.equalized_layer_symbols.shape[0]),
+                    "Detected ports": int(rx.equalized_port_symbols.shape[0]),
                     "Observed ports": int(rx.equalized_port_symbols.shape[0]),
-                    "Precoder condition": f"{float(np.linalg.cond(tx_meta.precoder_matrix)):.4g}",
+                    "Detector": str(config.get("receiver", {}).get("mimo_detector", config.get("receiver", {}).get("equalizer", "mmse"))).lower(),
                     "Effective channel shape": f"{effective_channel_matrix.shape[0]} x {effective_channel_matrix.shape[1]}",
                 },
                 "artifacts": [
@@ -1596,6 +1584,26 @@ class PhyPipelinePanel(QWidget):
                         "description": "Equalized port-domain constellations before layer recovery.",
                     },
                     {
+                        "name": "Effective channel magnitude",
+                        "kind": "grid",
+                        "payload": {"image": np.abs(effective_channel_matrix), "lookup": "cividis"},
+                        "description": "Approximate effective layer-to-port channel magnitude under the current baseline.",
+                    },
+                ],
+            },
+            {
+                "key": "layer_recovery",
+                "section": "RX",
+                "flow_label": "De-Precode",
+                "title": "Layer Recovery / De-precoding",
+                "description": "Detected port-domain symbols are projected back into the layer domain using the pseudo-inverse of the configured precoder.",
+                "metrics": {
+                    "Recovered layers": int(rx.equalized_layer_symbols.shape[0]),
+                    "Precoder condition": f"{float(np.linalg.cond(tx_meta.precoder_matrix)):.4g}",
+                    "Layer symbols": int(rx.equalized_layer_symbols.shape[1]) if rx.equalized_layer_symbols.ndim == 2 else 0,
+                },
+                "artifacts": [
+                    {
                         "name": "Recovered per-layer constellation",
                         "kind": "constellation_compare",
                         "payload": {
@@ -1609,12 +1617,6 @@ class PhyPipelinePanel(QWidget):
                             ]
                         },
                         "description": "Recovered layer-domain constellations after de-precoding.",
-                    },
-                    {
-                        "name": "Effective channel magnitude",
-                        "kind": "grid",
-                        "payload": {"image": np.abs(effective_channel_matrix), "lookup": "cividis"},
-                        "description": "Approximate effective layer-to-port channel magnitude under the current baseline.",
                     },
                 ],
             },

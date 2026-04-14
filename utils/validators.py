@@ -70,4 +70,8 @@ def validate_config(config: dict) -> dict:
     if int(reference_signals.get("sequence_seed", 0)) < 0:
         raise ValueError("reference_signals.sequence_seed must be non-negative.")
 
+    receiver = config.get("receiver", {})
+    if str(receiver.get("mimo_detector", "mmse")).lower() not in {"zf", "mmse", "osic"}:
+        raise ValueError("receiver.mimo_detector must be one of: zf, mmse, osic.")
+
     return config

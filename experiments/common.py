@@ -40,6 +40,49 @@ def _reference_channel_grid(tx_metadata, frequency_response: np.ndarray) -> np.n
     return grid
 
 
+def _active_frequency_response(tx_metadata, frequency_response: np.ndarray) -> np.ndarray:
+    center = tx_metadata.numerology.fft_size // 2
+    left = tx_metadata.numerology.active_subcarriers // 2
+    right = tx_metadata.numerology.active_subcarriers - left
+    return np.concatenate(
+        [
+            frequency_response[center - left : center],
+            frequency_response[center + 1 : center + 1 + right],
+        ]
+    )
+
+
+def _reference_channel_tensor(tx_metadata, frequency_response: np.ndarray, spatial_matrix: np.ndarray) -> np.ndarray:
+    active = _active_frequency_response(tx_metadata, frequency_response)
+    symbols = int(tx_metadata.numerology.symbols_per_slot)
+    tensor = spatial_matrix[:, :, None, None] * active[None, None, None, :]
+    return np.broadcast_to(
+        tensor,
+        (
+            spatial_matrix.shape[0],
+            spatial_matrix.shape[1],
+            symbols,
+            active.size,
+        ),
+    ).astype(np.complex128, copy=True)
+
+
+def _spatial_channel_matrix(config: Dict, tx_metadata, seed: int) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    num_rx = int(tx_metadata.spatial_layout.num_rx_antennas)
+    num_tx = max(int(tx_metadata.spatial_layout.num_ports), 1)
+    if num_rx == 1 and num_tx == 1:
+        return np.ones((1, 1), dtype=np.complex128)
+    profile = str(config.get("channel", {}).get("profile", "static_near")).lower()
+    base = (
+        rng.standard_normal((num_rx, num_tx)) + 1j * rng.standard_normal((num_rx, num_tx))
+    ) / np.sqrt(2.0 * max(num_tx, 1))
+    if "near" in profile or "los" in profile:
+        identity = np.eye(num_rx, num_tx, dtype=np.complex128)
+        base = 0.65 * identity + 0.35 * base
+    return base.astype(np.complex128)
+
+
 def _payload_size_bits_for_channel(config: Dict, channel_type: str) -> int:
     if channel_type.lower() == "prach":
         return int(config.get("prach", {}).get("preamble_id_bits", 6))
@@ -73,6 +116,7 @@ def _aggregate_slot_sequence_kpis(slot_results: list[Dict[str, Any]]) -> LinkKpi
 
     kpi_dicts = [entry["rx"].kpis.as_dict() for entry in slot_results]
     mean_metric = lambda key: float(np.mean([float(metrics[key]) for metrics in kpi_dicts if key in metrics]))
+    numeric_metric = lambda value: isinstance(value, (int, float, np.integer, np.floating, bool))
     extra_keys = sorted({key for metrics in kpi_dicts for key in metrics.keys()})
     extra = {
         key: mean_metric(key)
@@ -84,12 +128,13 @@ def _aggregate_slot_sequence_kpis(slot_results: list[Dict[str, Any]]) -> LinkKpi
             "evm",
             "throughput_bps",
             "spectral_efficiency_bps_hz",
-            "estimated_snr_db",
-            "crc_ok",
-            "channel_estimation_mse",
-            "synchronization_error_samples",
-        }
-    }
+              "estimated_snr_db",
+              "crc_ok",
+              "channel_estimation_mse",
+              "synchronization_error_samples",
+          }
+          and all(numeric_metric(metrics[key]) for metrics in kpi_dicts if key in metrics)
+      }
     extra["captured_slots"] = float(len(slot_results))
     extra["slots_crc_passed"] = float(sum(1 for entry in slot_results if entry["rx"].crc_ok))
     return LinkKpiSummary(
@@ -959,6 +1004,8 @@ def simulate_link(
         snr_db=float(config.get("channel", {}).get("snr_db", 20.0)),
         seed=simulation_seed + 123,
     )
+    spatial_matrix = _spatial_channel_matrix(config, tx_result.metadata, seed=simulation_seed + 17)
+    spatial_tensor = _reference_channel_tensor(tx_result.metadata, fading_response, spatial_matrix)
 
     if use_gnuradio:
         try:
@@ -990,8 +1037,15 @@ def simulate_link(
             waveform = fading_result.waveform
             fading_response = fading_result.frequency_response
             impulse_response = fading_result.impulse_response
-        channel_output_waveform = waveform.copy()
-        awgn_result = awgn.apply(waveform)
+            spatial_tensor = _reference_channel_tensor(tx_result.metadata, fading_response, spatial_matrix)
+        waveform_tensor = np.asarray(waveform, dtype=np.complex128)
+        if waveform_tensor.ndim == 1:
+            waveform_tensor = waveform_tensor[None, :]
+        if waveform_tensor.shape[0] > 1 or tx_result.metadata.spatial_layout.num_rx_antennas > 1:
+            channel_output_waveform = spatial_matrix @ waveform_tensor
+        else:
+            channel_output_waveform = waveform_tensor.copy()
+        awgn_result = awgn.apply(channel_output_waveform)
         rx_waveform = awgn_result.waveform
     else:
         channel_output_waveform = channel_output_waveform.copy()
@@ -1001,7 +1055,13 @@ def simulate_link(
         "noise_variance": awgn_result.noise_variance,
         "cfo_hz": float(config.get("channel", {}).get("cfo_hz", 0.0)),
         "sto_samples": int(config.get("channel", {}).get("sto_samples", 0)),
-        "reference_channel_grid": _reference_channel_grid(tx_result.metadata, fading_response),
+        "reference_channel_grid": (
+            np.mean(spatial_tensor, axis=(0, 1))
+            if spatial_tensor.shape[0] > 1 or spatial_tensor.shape[1] > 1
+            else _reference_channel_grid(tx_result.metadata, fading_response)
+        ),
+        "reference_channel_tensor": spatial_tensor,
+        "spatial_channel_matrix": spatial_matrix,
         "impulse_response": impulse_response,
         "fading_model": fading_model,
         "gnu_radio_requested": gnuradio_requested,

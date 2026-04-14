@@ -98,8 +98,10 @@ def test_phy_pipeline_panel_shows_layer_mapping_artifacts() -> None:
     assert "Layer 0 occupancy" in artifact_names
     assert "Layer 1 occupancy" in artifact_names
     precoding_stage = next(stage for stage in panel.stages if stage["key"] == "precoding_port_mapping")
+    detection_stage = next(stage for stage in panel.stages if stage["key"] == "mimo_detection")
     recovery_stage = next(stage for stage in panel.stages if stage["key"] == "layer_recovery")
     assert "Per-port power" in [artifact["name"] for artifact in precoding_stage["artifacts"]]
-    assert "Effective channel magnitude" in [artifact["name"] for artifact in recovery_stage["artifacts"]]
+    assert "Effective channel magnitude" in [artifact["name"] for artifact in detection_stage["artifacts"]]
+    assert "Recovered per-layer constellation" in [artifact["name"] for artifact in recovery_stage["artifacts"]]
     panel.deleteLater()
     app.processEvents()

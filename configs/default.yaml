@@ -120,6 +120,7 @@ channel:
 
 receiver:
   equalizer: mmse
+  mimo_detector: mmse
   perfect_sync: true
   perfect_channel_estimation: true
   timing_search_window: 96

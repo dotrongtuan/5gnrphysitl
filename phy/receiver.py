@@ -18,6 +18,7 @@ from .kpi import (
     spectral_efficiency_bps_hz,
     throughput_bps,
 )
+from .mimo_detection import detect_layers
 from .precoding import recover_layers_from_ports
 from .prach import detect_prach_preamble, preamble_id_to_bits
 from .resource_grid import ResourceGrid
@@ -52,6 +53,8 @@ class RxResult:
     re_ssb_symbols: np.ndarray
     re_pbch_dmrs_positions: np.ndarray
     re_pbch_dmrs_symbols: np.ndarray
+    channel_tensor: np.ndarray
+    effective_channel_tensor: np.ndarray
     rx_port_symbols: np.ndarray
     equalized_port_symbols: np.ndarray
     rx_layer_symbols: np.ndarray
@@ -236,6 +239,8 @@ class NrReceiver:
             re_ssb_symbols=np.array([], dtype=np.complex128),
             re_pbch_dmrs_positions=np.zeros((0, 2), dtype=int),
             re_pbch_dmrs_symbols=np.array([], dtype=np.complex128),
+            channel_tensor=np.ones((1, 1, tx_metadata.numerology.symbols_per_slot, tx_metadata.numerology.active_subcarriers), dtype=np.complex128),
+            effective_channel_tensor=np.ones((1, 1, tx_metadata.numerology.symbols_per_slot, tx_metadata.numerology.active_subcarriers), dtype=np.complex128),
             rx_port_symbols=equalized.reshape(1, -1),
             equalized_port_symbols=equalized.reshape(1, -1),
             rx_layer_symbols=equalized.reshape(1, -1),
@@ -318,8 +323,16 @@ class NrReceiver:
             effective_dmrs_positions = np.asarray(tx_metadata.ssb.get("pbch_dmrs_positions", np.zeros((0, 2), dtype=int)), dtype=int)
             effective_dmrs_symbols = np.asarray(tx_metadata.ssb.get("pbch_dmrs_symbols", np.array([], dtype=np.complex128)), dtype=np.complex128)
 
+        channel_tensor_reference = np.asarray(
+            channel_state.get(
+                "reference_channel_tensor",
+                np.ones((1, 1, numerology.symbols_per_slot, numerology.active_subcarriers), dtype=np.complex128),
+            ),
+            dtype=np.complex128,
+        )
         if bool(receiver_cfg.get("perfect_channel_estimation", False)) and "reference_channel_grid" in channel_state:
             h_full = np.asarray(channel_state["reference_channel_grid"], dtype=np.complex128)
+            h_tensor = channel_tensor_reference
             channel_est_mse = 0.0
         else:
             estimate = ls_estimate_from_dmrs(
@@ -330,6 +343,7 @@ class NrReceiver:
             h_full = estimate["h_full"]
             reference = np.asarray(channel_state.get("reference_channel_grid", h_full), dtype=np.complex128)
             channel_est_mse = channel_mse(h_full, reference)
+            h_tensor = channel_tensor_reference
 
         positions = tx_metadata.mapping.positions
         port_count = min(int(tx_metadata.spatial_layout.num_ports), int(rx_grid_tensor.shape[0]))
@@ -384,22 +398,41 @@ class NrReceiver:
         )
         h_symbols = h_full[positions[:, 0], positions[:, 1]]
         noise_variance = float(channel_state.get("noise_variance", 1e-3))
-        equalized_port_symbols = np.stack(
-            [
-                equalize(
-                    rx_symbols=rx_port_symbols[port_index],
-                    channel_estimate=h_symbols,
-                    noise_variance=noise_variance,
-                    mode=str(receiver_cfg.get("equalizer", "mmse")),
-                )
-                for port_index in range(port_count)
-            ],
-            axis=0,
-        ) if port_count > 0 else np.zeros((0, positions.shape[0]), dtype=np.complex128)
-        if equalized_port_symbols.size:
-            recovered_layer_symbols = recover_layers_from_ports(equalized_port_symbols, tx_metadata.precoder_matrix)
-        else:
+        detector_mode = str(receiver_cfg.get("mimo_detector", receiver_cfg.get("equalizer", "mmse"))).lower()
+        if port_count > 1 or int(tx_metadata.spatial_layout.num_rx_antennas) > 1:
+            equalized_port_symbols = np.zeros((port_count, positions.shape[0]), dtype=np.complex128)
             recovered_layer_symbols = np.zeros((layer_count, positions.shape[0]), dtype=np.complex128)
+            for position_index, (symbol_index, subcarrier_index) in enumerate(positions):
+                y_vector = rx_grid_tensor[: int(tx_metadata.spatial_layout.num_rx_antennas), symbol_index, subcarrier_index]
+                h_port = h_tensor[
+                    : int(tx_metadata.spatial_layout.num_rx_antennas),
+                    :port_count,
+                    symbol_index,
+                    subcarrier_index,
+                ]
+                port_estimate = detect_layers(y_vector, h_port, noise_variance, detector_mode)
+                equalized_port_symbols[:, position_index] = port_estimate
+                recovered_layer_symbols[:, position_index] = recover_layers_from_ports(
+                    port_estimate.reshape(-1, 1),
+                    tx_metadata.precoder_matrix,
+                ).reshape(-1)
+        else:
+            equalized_port_symbols = np.stack(
+                [
+                    equalize(
+                        rx_symbols=rx_port_symbols[port_index],
+                        channel_estimate=h_symbols,
+                        noise_variance=noise_variance,
+                        mode=str(receiver_cfg.get("equalizer", "mmse")),
+                    )
+                    for port_index in range(port_count)
+                ],
+                axis=0,
+            ) if port_count > 0 else np.zeros((0, positions.shape[0]), dtype=np.complex128)
+            if equalized_port_symbols.size:
+                recovered_layer_symbols = recover_layers_from_ports(equalized_port_symbols, tx_metadata.precoder_matrix)
+            else:
+                recovered_layer_symbols = np.zeros((layer_count, positions.shape[0]), dtype=np.complex128)
         detected_layer_symbols = np.stack(
             [
                 remove_transform_precoding(recovered_layer_symbols[layer_index])
@@ -457,6 +490,7 @@ class NrReceiver:
         throughput = throughput_bps(recovered_bits.size, slot_duration_s=slot_duration_s, crc_ok=crc_ok)
         spectral_efficiency = spectral_efficiency_bps_hz(throughput=throughput, bandwidth_hz=float(bandwidth_hz))
         est_snr = estimate_snr_db(reference_symbols, equalized - reference_symbols)
+        effective_channel_tensor = np.einsum("rpsf,pl->rlsf", h_tensor[:, :port_count, :, :], tx_metadata.precoder_matrix[:port_count, :layer_count])
 
         kpis = LinkKpiSummary(
             ber=ber,
@@ -468,7 +502,7 @@ class NrReceiver:
             crc_ok=crc_ok,
             channel_estimation_mse=channel_est_mse,
             synchronization_error_samples=float(timing_offset - int(channel_state.get("sto_samples", 0))),
-            extra={"cfo_estimate_hz": cfo_estimate_hz},
+            extra={"cfo_estimate_hz": cfo_estimate_hz, "mimo_detector": detector_mode},
         )
 
         return RxResult(
@@ -514,6 +548,8 @@ class NrReceiver:
             re_ssb_symbols=re_ssb_symbols,
             re_pbch_dmrs_positions=pbch_dmrs_positions,
             re_pbch_dmrs_symbols=re_pbch_dmrs_symbols,
+            channel_tensor=h_tensor,
+            effective_channel_tensor=effective_channel_tensor,
             rx_port_symbols=rx_port_symbols,
             equalized_port_symbols=equalized_port_symbols,
             rx_layer_symbols=rx_layer_symbols,
