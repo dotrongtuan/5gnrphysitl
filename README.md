@@ -860,6 +860,7 @@ Notes:
 - For a deep comparison between this simulator and real-world 5G systems, see `docs/REAL_5G_SYSTEM_VS_PROJECT.md`.
 - For a stage-by-stage technical explanation of the PHY chain aligned with the GUI pipeline, see `docs/TECHDOC_5G_NR_PHY_TRACE.md`.
 - For full-option PHY pipeline use cases and extension priorities, see `docs/FULL_OPTION_PHY_USECASES.md`.
+- For a one-page classroom command sheet with the recommended live demo order, see `docs/TEACHING_QUICKSTART.md`.
 - For classroom-ready lab setups, GUI settings, commands, expected results, and discussion prompts, see `docs/TEACHING_LABS_MATRIX.md`.
 - For an instructor-led `90-minute` live classroom demo plan, see `docs/TEACHING_DEMO_90_MINUTE.md`.
 - For a student-facing structured `6-session` teaching lab series with deliverables, see `docs/TEACHING_LABS_6_SESSION_SERIES.md`.
