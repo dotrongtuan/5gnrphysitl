@@ -6,8 +6,8 @@ This document is the **student-facing lab sequence**.
 
 It is intentionally different from:
 
-- [TEACHING_DEMO_90_MINUTE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_DEMO_90_MINUTE.md), which is the instructor-led live demo plan
-- [TEACHING_LABS_MATRIX.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_LABS_MATRIX.md), which is the compact lab lookup sheet
+- [TEACHING_DEMO_90_MINUTE.md](TEACHING_DEMO_90_MINUTE.md), which is the instructor-led live demo plan
+- [TEACHING_LABS_MATRIX.md](TEACHING_LABS_MATRIX.md), which is the compact lab lookup sheet
 
 Use this file when you want a **multi-week or multi-session lab progression** with deliverables and discussion prompts.
 
@@ -35,14 +35,18 @@ It is not designed to teach:
 Project root:
 
 ```powershell
-cd D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 ```
+
+Replace `<path-to-5gnr_phy_stl>` with the local checkout path on the student machine.
 
 Recommended GUI launch:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --gui
 ```
+
+`<radioconda-python>` means the `python.exe` inside the local Radioconda installation.
 
 Fallback without GNU Radio:
 
@@ -418,5 +422,5 @@ You can assess each lab with:
 ## How This Series Avoids Overlap With the Demo Plan
 
 - This file is for **student work and deliverables**
-- [TEACHING_DEMO_90_MINUTE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_DEMO_90_MINUTE.md) is for **instructor presentation flow**
-- [TEACHING_LABS_MATRIX.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_LABS_MATRIX.md) remains the **quick lookup sheet**
+- [TEACHING_DEMO_90_MINUTE.md](TEACHING_DEMO_90_MINUTE.md) is for **instructor presentation flow**
+- [TEACHING_LABS_MATRIX.md](TEACHING_LABS_MATRIX.md) remains the **quick lookup sheet**

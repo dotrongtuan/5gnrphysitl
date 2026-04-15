@@ -93,7 +93,7 @@ flowchart LR
 
 ### 4.2 Required Python Packages
 
-Core dependencies are declared in [pyproject.toml](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/pyproject.toml) and [requirements.txt](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/requirements.txt).
+Core dependencies are declared in [pyproject.toml](../pyproject.toml) and [requirements.txt](../requirements.txt).
 
 Main runtime stack:
 
@@ -124,20 +124,24 @@ For the GUI itself, GNU Radio is not required.
 ### 5.1 Python-Only Setup on Windows
 
 ```powershell
-cd D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+Replace `<path-to-5gnr_phy_stl>` with the local folder where this repository lives on your machine.
 
 ### 5.2 Radioconda / GNU Radio Setup on Windows
 
 If GNU Radio support is needed:
 
 ```powershell
-cd D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe -m pip install -r requirements.txt
+cd <path-to-5gnr_phy_stl>
+<radioconda-python> -m pip install -r requirements.txt
 ```
+
+`<radioconda-python>` means the `python.exe` inside your local Radioconda installation.
 
 Then run the GUI with:
 
@@ -148,7 +152,7 @@ Then run the GUI with:
 or:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --gui
 ```
 
 ### 5.3 Build the Package
@@ -169,7 +173,7 @@ Expected outputs:
 ### 6.1 Default GUI
 
 ```powershell
-cd D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 python main.py --config configs/default.yaml --gui
 ```
 
@@ -291,10 +295,10 @@ Set `Capture slots > 1` before running. Then:
 
 ### 8.1 TX Input Files
 
-Sample files are available in [input](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/input):
+Sample files are available in [input](../input):
 
-- [sample_message.txt](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/input/sample_message.txt)
-- [sample_image.png](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/input/sample_image.png)
+- [sample_message.txt](../input/sample_message.txt)
+- [sample_image.png](../input/sample_image.png)
 
 ### 8.2 GUI Flow
 
@@ -429,7 +433,7 @@ Get-Location
 Then change into:
 
 ```powershell
-cd D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 ```
 
 ### 11.4 GUI Looks Fine but Results Never Change Much
@@ -512,8 +516,8 @@ Current major limits:
 
 ## 14. Related Documents
 
-- [README.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/README.md)
-- [GUI_ARCHITECTURE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/GUI_ARCHITECTURE.md)
-- [TECHDOC_5G_NR_PHY_TRACE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TECHDOC_5G_NR_PHY_TRACE.md)
-- [NR_PHY_SIMULATOR_V2_ARCHITECTURE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/NR_PHY_SIMULATOR_V2_ARCHITECTURE.md)
-- [NR_PHY_SIMULATOR_V2_BACKLOG.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/NR_PHY_SIMULATOR_V2_BACKLOG.md)
+- [README.md](../README.md)
+- [GUI_ARCHITECTURE.md](GUI_ARCHITECTURE.md)
+- [TECHDOC_5G_NR_PHY_TRACE.md](TECHDOC_5G_NR_PHY_TRACE.md)
+- [NR_PHY_SIMULATOR_V2_ARCHITECTURE.md](NR_PHY_SIMULATOR_V2_ARCHITECTURE.md)
+- [NR_PHY_SIMULATOR_V2_BACKLOG.md](NR_PHY_SIMULATOR_V2_BACKLOG.md)

@@ -17,7 +17,7 @@ Run from the project root:
 Windows:
 
 ```powershell
-cd C:\path\to\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 ```
 
 Linux/macOS:

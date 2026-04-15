@@ -13,7 +13,7 @@ It explains:
 - how to validate changes
 - how packaging, CI/CD, and releases are expected to work
 
-This is not an end-user operations document. For installation and normal usage, see [USER_MANUAL.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/USER_MANUAL.md).
+This is not an end-user operations document. For installation and normal usage, see [USER_MANUAL.md](USER_MANUAL.md).
 
 ## 2. Project Positioning
 
@@ -46,10 +46,10 @@ Current implemented scope includes:
 
 Before changing major PHY behavior, read:
 
-- [NR_PHY_SIMULATOR_V2_ARCHITECTURE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/NR_PHY_SIMULATOR_V2_ARCHITECTURE.md)
-- [NR_PHY_SIMULATOR_V2_BACKLOG.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/NR_PHY_SIMULATOR_V2_BACKLOG.md)
-- [TECHDOC_5G_NR_PHY_TRACE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TECHDOC_5G_NR_PHY_TRACE.md)
-- [GUI_ARCHITECTURE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/GUI_ARCHITECTURE.md)
+- [NR_PHY_SIMULATOR_V2_ARCHITECTURE.md](NR_PHY_SIMULATOR_V2_ARCHITECTURE.md)
+- [NR_PHY_SIMULATOR_V2_BACKLOG.md](NR_PHY_SIMULATOR_V2_BACKLOG.md)
+- [TECHDOC_5G_NR_PHY_TRACE.md](TECHDOC_5G_NR_PHY_TRACE.md)
+- [GUI_ARCHITECTURE.md](GUI_ARCHITECTURE.md)
 
 These documents define the intended direction of the codebase. Changes that fight those documents tend to create architectural drift.
 
@@ -59,33 +59,33 @@ These documents define the intended direction of the codebase. Changes that figh
 
 | Path | Role |
 | --- | --- |
-| [main.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/main.py) | main entry point for single-run CLI and GUI |
-| [run_experiments.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/run_experiments.py) | batch experiment entry point |
-| [phy](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy) | baseband PHY blocks and PHY-adjacent procedures |
-| [channel](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/channel) | channel and impairment models |
-| [experiments](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/experiments) | orchestration and batch logic |
-| [gui](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui) | PyQt/pyqtgraph GUI and Dash integration |
-| [utils](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/utils) | IO, validation, plotting, file transfer helpers |
-| [configs](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/configs) | scenario and default runtime configs |
-| [tests](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/tests) | unit, regression, GUI smoke, scenario tests |
-| [docs](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs) | technical and user-facing documentation |
-| [pyproject.toml](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/pyproject.toml) | package metadata and build config |
-| [.github/workflows](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/.github/workflows) | CI/CD definitions |
+| [main.py](../main.py) | main entry point for single-run CLI and GUI |
+| [run_experiments.py](../run_experiments.py) | batch experiment entry point |
+| [phy](../phy) | baseband PHY blocks and PHY-adjacent procedures |
+| [channel](../channel) | channel and impairment models |
+| [experiments](../experiments) | orchestration and batch logic |
+| [gui](../gui) | PyQt/pyqtgraph GUI and Dash integration |
+| [utils](../utils) | IO, validation, plotting, file transfer helpers |
+| [configs](../configs) | scenario and default runtime configs |
+| [tests](../tests) | unit, regression, GUI smoke, scenario tests |
+| [docs](../docs) | technical and user-facing documentation |
+| [pyproject.toml](../pyproject.toml) | package metadata and build config |
+| [.github/workflows](../.github/workflows) | CI/CD definitions |
 
 ### 4.2 Important Modules
 
 | Module | Responsibility |
 | --- | --- |
-| [phy/transmitter.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/transmitter.py) | TX chain, metadata, OFDM modulation |
-| [phy/receiver.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/receiver.py) | RX chain, estimation, detection, decoding |
-| [phy/resource_grid.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/resource_grid.py) | RE allocation, layer/port/RX grids, masks |
-| [phy/coding.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/coding.py) | CRC, segmentation, coding, rate matching/recovery |
-| [phy/layer_mapping.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/layer_mapping.py) | layer-domain mapping helpers |
-| [phy/precoding.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/precoding.py) | precoders and codebook baseline |
-| [phy/mimo_detection.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/mimo_detection.py) | `ZF`, `MMSE`, `OSIC` detectors |
-| [phy/csi.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/csi.py) | CSI feedback estimation and selection |
-| [experiments/common.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/experiments/common.py) | run orchestration, slot history, pipeline contract |
-| [gui/phy_pipeline.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui/phy_pipeline.py) | stage model construction and stage rendering |
+| [phy/transmitter.py](../phy/transmitter.py) | TX chain, metadata, OFDM modulation |
+| [phy/receiver.py](../phy/receiver.py) | RX chain, estimation, detection, decoding |
+| [phy/resource_grid.py](../phy/resource_grid.py) | RE allocation, layer/port/RX grids, masks |
+| [phy/coding.py](../phy/coding.py) | CRC, segmentation, coding, rate matching/recovery |
+| [phy/layer_mapping.py](../phy/layer_mapping.py) | layer-domain mapping helpers |
+| [phy/precoding.py](../phy/precoding.py) | precoders and codebook baseline |
+| [phy/mimo_detection.py](../phy/mimo_detection.py) | `ZF`, `MMSE`, `OSIC` detectors |
+| [phy/csi.py](../phy/csi.py) | CSI feedback estimation and selection |
+| [experiments/common.py](../experiments/common.py) | run orchestration, slot history, pipeline contract |
+| [gui/phy_pipeline.py](../gui/phy_pipeline.py) | stage model construction and stage rendering |
 
 ## 5. Runtime Architecture
 
@@ -144,12 +144,12 @@ Key domains:
 
 Important structures:
 
-- [types.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/types.py)
+- [types.py](../phy/types.py)
   - `SpatialLayout`
   - `TensorViewSpec`
-- [context.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/context.py)
+- [context.py](../phy/context.py)
   - `SlotContext`
-- [artifacts.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/artifacts.py)
+- [artifacts.py](../phy/artifacts.py)
   - pipeline-stage artifact schema
 
 Developer rule:
@@ -159,9 +159,9 @@ Developer rule:
 
 ## 7. Configuration Model
 
-Primary runtime configuration is driven from [configs/default.yaml](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/configs/default.yaml), then optionally overridden by scenario files.
+Primary runtime configuration is driven from [configs/default.yaml](../configs/default.yaml), then optionally overridden by scenario files.
 
-Validation is centralized in [validators.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/utils/validators.py).
+Validation is centralized in [validators.py](../utils/validators.py).
 
 Developer rule:
 
@@ -177,11 +177,11 @@ Developer rule:
 
 Main GUI modules:
 
-- [app.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui/app.py)
-- [controls.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui/controls.py)
-- [plots.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui/plots.py)
-- [phy_pipeline.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui/phy_pipeline.py)
-- [dashboard.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui/dashboard.py)
+- [app.py](../gui/app.py)
+- [controls.py](../gui/controls.py)
+- [plots.py](../gui/plots.py)
+- [phy_pipeline.py](../gui/phy_pipeline.py)
+- [dashboard.py](../gui/dashboard.py)
 
 ### 8.2 Pipeline Contract
 
@@ -252,7 +252,7 @@ Examples:
 
 If the block should be visible:
 
-- add a stage in [gui/phy_pipeline.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui/phy_pipeline.py)
+- add a stage in [gui/phy_pipeline.py](../gui/phy_pipeline.py)
 - expose meaningful metrics
 - expose at least one artifact
 
@@ -271,7 +271,7 @@ Preferred artifact types:
 
 At minimum:
 
-- one unit or regression test in [tests](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/tests)
+- one unit or regression test in [tests](../tests)
 - if GUI stage is added, one GUI smoke test
 - if scenario behavior changes, one scenario-level smoke test
 
@@ -312,23 +312,23 @@ python -m pytest -q
 
 Changes in these files usually require broader regression:
 
-- [phy/transmitter.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/transmitter.py)
-- [phy/receiver.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/receiver.py)
-- [phy/resource_grid.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/resource_grid.py)
-- [experiments/common.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/experiments/common.py)
-- [gui/phy_pipeline.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/gui/phy_pipeline.py)
+- [phy/transmitter.py](../phy/transmitter.py)
+- [phy/receiver.py](../phy/receiver.py)
+- [phy/resource_grid.py](../phy/resource_grid.py)
+- [experiments/common.py](../experiments/common.py)
+- [gui/phy_pipeline.py](../gui/phy_pipeline.py)
 
 ## 11. Packaging
 
 Package metadata is defined in:
 
-- [pyproject.toml](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/pyproject.toml)
-- [MANIFEST.in](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/MANIFEST.in)
+- [pyproject.toml](../pyproject.toml)
+- [MANIFEST.in](../MANIFEST.in)
 
 Version source:
 
-- [fivegnr_phy_stl/__init__.py](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/fivegnr_phy_stl/__init__.py)
-- [pyproject.toml](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/pyproject.toml)
+- [fivegnr_phy_stl/__init__.py](../fivegnr_phy_stl/__init__.py)
+- [pyproject.toml](../pyproject.toml)
 
 Developer rule:
 
@@ -343,7 +343,7 @@ Build command:
 
 ## 12. CI/CD
 
-GitHub Actions live under [.github/workflows](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/.github/workflows).
+GitHub Actions live under [.github/workflows](../.github/workflows).
 
 Current pipelines cover:
 
@@ -463,9 +463,9 @@ Before merging a nontrivial change, confirm:
 
 ## 19. Related Documents
 
-- [README.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/README.md)
-- [USER_MANUAL.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/USER_MANUAL.md)
-- [NR_PHY_SIMULATOR_V2_ARCHITECTURE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/NR_PHY_SIMULATOR_V2_ARCHITECTURE.md)
-- [NR_PHY_SIMULATOR_V2_BACKLOG.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/NR_PHY_SIMULATOR_V2_BACKLOG.md)
-- [TECHDOC_5G_NR_PHY_TRACE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TECHDOC_5G_NR_PHY_TRACE.md)
-- [GUI_ARCHITECTURE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/GUI_ARCHITECTURE.md)
+- [README.md](../README.md)
+- [USER_MANUAL.md](USER_MANUAL.md)
+- [NR_PHY_SIMULATOR_V2_ARCHITECTURE.md](NR_PHY_SIMULATOR_V2_ARCHITECTURE.md)
+- [NR_PHY_SIMULATOR_V2_BACKLOG.md](NR_PHY_SIMULATOR_V2_BACKLOG.md)
+- [TECHDOC_5G_NR_PHY_TRACE.md](TECHDOC_5G_NR_PHY_TRACE.md)
+- [GUI_ARCHITECTURE.md](GUI_ARCHITECTURE.md)

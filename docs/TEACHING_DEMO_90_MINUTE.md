@@ -6,8 +6,8 @@ This document is the **instructor-led live demo script**.
 
 It is intentionally different from:
 
-- [TEACHING_LABS_6_SESSION_SERIES.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_LABS_6_SESSION_SERIES.md), which is the hands-on lab plan for students
-- [TEACHING_LABS_MATRIX.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_LABS_MATRIX.md), which is the compact reference matrix
+- [TEACHING_LABS_6_SESSION_SERIES.md](TEACHING_LABS_6_SESSION_SERIES.md), which is the hands-on lab plan for students
+- [TEACHING_LABS_MATRIX.md](TEACHING_LABS_MATRIX.md), which is the compact reference matrix
 
 Use this file when you want to **present the project in one class meeting** without turning the session into a full lab.
 
@@ -59,14 +59,18 @@ At the end of 90 minutes, students should be able to:
 Project root:
 
 ```powershell
-cd D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 ```
+
+Replace `<path-to-5gnr_phy_stl>` with the local checkout path on the classroom machine.
 
 Recommended GUI launch:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --gui
 ```
+
+`<radioconda-python>` means the `python.exe` inside your local Radioconda installation.
 
 Fallback if GNU Radio is not needed:
 
@@ -326,8 +330,8 @@ Message to students:
 
 After this live demo, the natural next step is to assign:
 
-- [TEACHING_LABS_6_SESSION_SERIES.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_LABS_6_SESSION_SERIES.md) for structured student labs
-- [TEACHING_LABS_MATRIX.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_LABS_MATRIX.md) for quick lab lookup
+- [TEACHING_LABS_6_SESSION_SERIES.md](TEACHING_LABS_6_SESSION_SERIES.md) for structured student labs
+- [TEACHING_LABS_MATRIX.md](TEACHING_LABS_MATRIX.md) for quick lab lookup
 
 ## Instructor Notes
 

@@ -40,10 +40,10 @@ These references define what "more realistic NR PHY" means for this repository.
 
 Based on the current codebase:
 
-- [`phy/transmitter.py`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/transmitter.py) emits one waveform and one metadata object for one stream.
-- [`phy/receiver.py`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/receiver.py) operates on one corrected waveform, one RX grid, one channel estimate, and one equalized stream.
-- [`phy/resource_grid.py`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/phy/resource_grid.py) models a single-slot, single-grid abstraction.
-- [`channel/fading_channel.py`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/channel/fading_channel.py) applies one impulse response and one frequency response, not a MIMO channel tensor.
+- [`phy/transmitter.py`](../phy/transmitter.py) emits one waveform and one metadata object for one stream.
+- [`phy/receiver.py`](../phy/receiver.py) operates on one corrected waveform, one RX grid, one channel estimate, and one equalized stream.
+- [`phy/resource_grid.py`](../phy/resource_grid.py) models a single-slot, single-grid abstraction.
+- [`channel/fading_channel.py`](../channel/fading_channel.py) applies one impulse response and one frequency response, not a MIMO channel tensor.
 
 The current project is therefore:
 

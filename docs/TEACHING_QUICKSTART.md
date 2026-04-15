@@ -9,14 +9,18 @@ Use this when you want to **open the project and demo the most important 5G PHY 
 Project root:
 
 ```powershell
-cd D:\Data\Lectures\20252\MobiCom\Codex\5GNRPHYSITL\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 ```
+
+Replace `<path-to-5gnr_phy_stl>` with the local checkout path on the classroom machine.
 
 Recommended interpreter:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe
+<radioconda-python>
 ```
+
+`<radioconda-python>` means the `python.exe` inside your local Radioconda installation.
 
 ---
 
@@ -25,7 +29,7 @@ C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe
 ### 1. Open the default GUI
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --gui
 ```
 
 Use this to introduce:
@@ -72,13 +76,13 @@ Focus on:
 Downlink control:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --channel-type control --gui
+<radioconda-python> main.py --config configs/default.yaml --channel-type control --gui
 ```
 
 PBCH / SSB:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --override configs/scenario_pbch_baseline.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_pbch_baseline.yaml --gui
 ```
 
 Focus on:
@@ -95,13 +99,13 @@ Focus on:
 Uplink data:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --override configs/scenario_uplink_baseline.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_uplink_baseline.yaml --gui
 ```
 
 Uplink control:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --override configs/scenario_uplink_control_baseline.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_uplink_control_baseline.yaml --gui
 ```
 
 Focus on:
@@ -114,7 +118,7 @@ Focus on:
 ### 5. Show PRACH as a detection problem
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --override configs/scenario_uplink_prach_baseline.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_uplink_prach_baseline.yaml --gui
 ```
 
 Focus on:
@@ -128,7 +132,7 @@ Focus on:
 Open the default GUI again:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --gui
 ```
 
 Run twice:
@@ -149,7 +153,7 @@ Then vary:
 If you want a harder channel:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --override configs/scenario_vehicular.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_vehicular.yaml --gui
 ```
 
 ### 7. Show file transfer over PHY
@@ -157,13 +161,13 @@ C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config confi
 Text:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --override configs/scenario_text_transfer.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_text_transfer.yaml --gui
 ```
 
 Image:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --override configs/scenario_image_transfer.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_image_transfer.yaml --gui
 ```
 
 Focus on:
@@ -176,7 +180,7 @@ Focus on:
 ### 8. Show SU-MIMO baseline
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe main.py --config configs/default.yaml --override configs/scenario_su_mimo_two_codeword.yaml --gui
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_su_mimo_two_codeword.yaml --gui
 ```
 
 Focus on:
@@ -193,7 +197,7 @@ Focus on:
 Closed-loop vs open-loop CSI:
 
 ```powershell
-C:\Users\tuan.dotrong\AppData\Local\radioconda\python.exe run_experiments.py --experiment csi_loop_compare --config configs/default.yaml --override configs/scenario_su_mimo_csi_loop.yaml --output-dir outputs
+<radioconda-python> run_experiments.py --experiment csi_loop_compare --config configs/default.yaml --override configs/scenario_su_mimo_csi_loop.yaml --output-dir outputs
 ```
 
 Look at:
@@ -226,6 +230,6 @@ Run only these two:
 
 ## Follow-On Documents
 
-- [TEACHING_DEMO_90_MINUTE.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_DEMO_90_MINUTE.md)
-- [TEACHING_LABS_6_SESSION_SERIES.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_LABS_6_SESSION_SERIES.md)
-- [TEACHING_LABS_MATRIX.md](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/docs/TEACHING_LABS_MATRIX.md)
+- [TEACHING_DEMO_90_MINUTE.md](TEACHING_DEMO_90_MINUTE.md)
+- [TEACHING_LABS_6_SESSION_SERIES.md](TEACHING_LABS_6_SESSION_SERIES.md)
+- [TEACHING_LABS_MATRIX.md](TEACHING_LABS_MATRIX.md)

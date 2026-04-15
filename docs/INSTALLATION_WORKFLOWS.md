@@ -1,6 +1,6 @@
 # Installation Workflows
 
-This document consolidates installation workflows for the supported operating systems and maps them to reusable installer scripts under [`install/`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install).
+This document consolidates installation workflows for the supported operating systems and maps them to reusable installer scripts under [`install/`](../install).
 
 ## Goals
 
@@ -23,12 +23,12 @@ Use these upstream documents as the authoritative reference when local platform 
 
 | OS | Profile | External resources installed | Script |
 | --- | --- | --- | --- |
-| Windows 10/11 | Python-only | Python 3.10+, `venv`, project Python packages | [`install/windows-python-only.ps1`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/windows-python-only.ps1) |
-| Windows 10/11 | Radioconda + GNU Radio | Radioconda interpreter, GNU Radio QT bindings, project Python packages | [`install/windows-radioconda.ps1`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/windows-radioconda.ps1) |
-| Ubuntu 22.04/24.04 | Python-only | `apt` Python packages, `venv`, project Python packages | [`install/ubuntu-python-only.sh`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/ubuntu-python-only.sh) |
-| Ubuntu 22.04/24.04 | GNU Radio + `venv` | `apt` GNU Radio, `venv --system-site-packages`, project Python packages | [`install/ubuntu-gnuradio.sh`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/ubuntu-gnuradio.sh) |
-| macOS | Python-only | Homebrew Python 3.11, `venv`, project Python packages | [`install/macos-python-only.sh`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/macos-python-only.sh) |
-| macOS | GNU Radio + `venv` | Homebrew GNU Radio, `venv --system-site-packages`, project Python packages | [`install/macos-gnuradio.sh`](/D:/Data/Lectures/20252/MobiCom/Codex/5GNRPHYSITL/5gnr_phy_stl/install/macos-gnuradio.sh) |
+| Windows 10/11 | Python-only | Python 3.10+, `venv`, project Python packages | [`install/windows-python-only.ps1`](../install/windows-python-only.ps1) |
+| Windows 10/11 | Radioconda + GNU Radio | Radioconda interpreter, GNU Radio QT bindings, project Python packages | [`install/windows-radioconda.ps1`](../install/windows-radioconda.ps1) |
+| Ubuntu 22.04/24.04 | Python-only | `apt` Python packages, `venv`, project Python packages | [`install/ubuntu-python-only.sh`](../install/ubuntu-python-only.sh) |
+| Ubuntu 22.04/24.04 | GNU Radio + `venv` | `apt` GNU Radio, `venv --system-site-packages`, project Python packages | [`install/ubuntu-gnuradio.sh`](../install/ubuntu-gnuradio.sh) |
+| macOS | Python-only | Homebrew Python 3.11, `venv`, project Python packages | [`install/macos-python-only.sh`](../install/macos-python-only.sh) |
+| macOS | GNU Radio + `venv` | Homebrew GNU Radio, `venv --system-site-packages`, project Python packages | [`install/macos-gnuradio.sh`](../install/macos-gnuradio.sh) |
 
 ## Windows 10/11
 
@@ -44,7 +44,7 @@ Use when you need:
 Run from PowerShell:
 
 ```powershell
-cd D:\path\to\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 .\install\windows-python-only.ps1
 ```
 
@@ -72,7 +72,7 @@ Prerequisite:
 Run from PowerShell:
 
 ```powershell
-cd D:\path\to\5gnr_phy_stl
+cd <path-to-5gnr_phy_stl>
 .\install\windows-radioconda.ps1 -InstallRequirements
 ```
 
@@ -91,8 +91,10 @@ To launch with the GNU Radio loopback override:
 If the script cannot find Radioconda automatically, pass the interpreter explicitly:
 
 ```powershell
-.\install\windows-radioconda.ps1 -PythonPath C:\Users\<user>\AppData\Local\radioconda\python.exe -InstallRequirements
+.\install\windows-radioconda.ps1 -PythonPath <radioconda-python> -InstallRequirements
 ```
+
+`<radioconda-python>` means the `python.exe` inside your own Radioconda installation.
 
 ## Ubuntu 22.04 / 24.04
 
