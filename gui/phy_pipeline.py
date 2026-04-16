@@ -1013,9 +1013,16 @@ class PhyPipelinePanel(QWidget):
         if direction == "downlink" and tx_meta.channel_type in {"control", "pdcch"}:
             from phy.resource_grid import ResourceGrid
 
-            helper = ResourceGrid(numerology, tx_meta.allocation, spatial_layout=tx_meta.spatial_layout)
+            helper = ResourceGrid(
+                numerology,
+                tx_meta.allocation,
+                spatial_layout=tx_meta.spatial_layout,
+                slot_index=int(getattr(tx_meta, "slot_index", 0)),
+            )
             coreset_mask = helper.coreset_re_mask().astype(np.float32)
-            search_space_mask = helper.search_space_re_mask().astype(np.float32)
+            search_space_mask = np.zeros_like(coreset_mask)
+            if tx_meta.mapping.positions.size:
+                search_space_mask[tx_meta.mapping.positions[:, 0], tx_meta.mapping.positions[:, 1]] = 1.0
             insertion_index = next(
                 (index for index, stage in enumerate(stages) if stage.get("key") == "resource_grid_dmrs"),
                 len(stages),
@@ -1032,8 +1039,11 @@ class PhyPipelinePanel(QWidget):
                         "CORESET start symbol": int(tx_meta.allocation.coreset_start_symbol),
                         "CORESET symbol count": int(tx_meta.allocation.coreset_symbol_count),
                         "CORESET subcarriers": int(tx_meta.allocation.coreset_subcarriers),
+                        "CORESET subcarrier offset": int(tx_meta.allocation.coreset_subcarrier_offset),
                         "SearchSpace stride": int(tx_meta.allocation.search_space_stride),
                         "SearchSpace offset": int(tx_meta.allocation.search_space_offset),
+                        "SearchSpace periodicity (slots)": int(tx_meta.allocation.search_space_period_slots),
+                        "SearchSpace slot offset": int(tx_meta.allocation.search_space_slot_offset),
                         "Monitored RE count": int(np.sum(search_space_mask)),
                     },
                     "artifacts": [
@@ -1045,8 +1055,18 @@ class PhyPipelinePanel(QWidget):
         elif direction == "downlink" and tx_meta.channel_type in {"pbch", "broadcast"}:
             from phy.resource_grid import ResourceGrid
 
-            helper = ResourceGrid(numerology, tx_meta.allocation, spatial_layout=tx_meta.spatial_layout)
-            ssb_mask = helper.ssb_re_mask().astype(np.float32)
+            helper = ResourceGrid(
+                numerology,
+                tx_meta.allocation,
+                spatial_layout=tx_meta.spatial_layout,
+                slot_index=int(getattr(tx_meta, "slot_index", 0)),
+                physical_cell_id=int(tx_meta.ssb.get("physical_cell_id", 0)),
+                ssb_block_index=int(tx_meta.ssb.get("ssb_block_index", 0)),
+            )
+            ssb_mask = np.zeros(helper.shape, dtype=np.float32)
+            helper_ssb_positions = helper.ssb_positions(force_active=True)
+            if helper_ssb_positions.size:
+                ssb_mask[helper_ssb_positions[:, 0], helper_ssb_positions[:, 1]] = 1.0
             insertion_index = next(
                 (index for index, stage in enumerate(stages) if stage.get("key") == "resource_grid_dmrs"),
                 len(stages),
@@ -1063,6 +1083,9 @@ class PhyPipelinePanel(QWidget):
                         "SSB start symbol": int(tx_meta.allocation.ssb_start_symbol),
                         "SSB symbol count": int(tx_meta.allocation.ssb_symbol_count),
                         "SSB subcarriers": int(tx_meta.allocation.ssb_subcarriers),
+                        "SSB subcarrier offset": int(tx_meta.allocation.ssb_subcarrier_offset),
+                        "SSB periodicity (slots)": int(tx_meta.allocation.ssb_period_slots),
+                        "SSB slot offset": int(tx_meta.allocation.ssb_slot_offset),
                         "PBCH payload RE count": int(tx_meta.mapping.positions.shape[0]),
                     },
                     "artifacts": [
@@ -2070,12 +2093,29 @@ class PhyPipelinePanel(QWidget):
         if str(getattr(tx_meta, "direction", "downlink")).lower() == "downlink" and channel_type in {"control", "pdcch"}:
             from phy.resource_grid import ResourceGrid
 
-            helper = ResourceGrid(numerology, tx_meta.allocation, spatial_layout=tx_meta.spatial_layout)
+            helper = ResourceGrid(
+                numerology,
+                tx_meta.allocation,
+                spatial_layout=tx_meta.spatial_layout,
+                slot_index=int(getattr(tx_meta, "slot_index", 0)),
+                physical_cell_id=int(tx_meta.ssb.get("physical_cell_id", 0)),
+                ssb_block_index=int(tx_meta.ssb.get("ssb_block_index", 0)),
+            )
             coreset_positions = helper.coreset_positions()
             if coreset_positions.size:
                 allocation_map[coreset_positions[:, 0], coreset_positions[:, 1]] = 1.0
         elif str(getattr(tx_meta, "direction", "downlink")).lower() == "downlink" and channel_type in {"pbch", "broadcast"}:
-            ssb_positions = tx_meta.ssb["positions"]
+            from phy.resource_grid import ResourceGrid
+
+            helper = ResourceGrid(
+                numerology,
+                tx_meta.allocation,
+                spatial_layout=tx_meta.spatial_layout,
+                slot_index=int(getattr(tx_meta, "slot_index", 0)),
+                physical_cell_id=int(tx_meta.ssb.get("physical_cell_id", 0)),
+                ssb_block_index=int(tx_meta.ssb.get("ssb_block_index", 0)),
+            )
+            ssb_positions = helper.ssb_positions(force_active=True)
             if ssb_positions.size:
                 allocation_map[ssb_positions[:, 0], ssb_positions[:, 1]] = 1.0
         positions = tx_meta.mapping.positions

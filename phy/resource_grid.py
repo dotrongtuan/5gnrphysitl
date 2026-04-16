@@ -8,7 +8,13 @@ import numpy as np
 from .dmrs import dmrs_pattern
 from .frame_structure import FrameAllocation
 from .numerology import NumerologyConfig
-from .reference_signals import comb_positions, qpsk_reference_sequence
+from .reference_signals import (
+    comb_positions,
+    nr_cell_id_components,
+    nr_pss_sequence,
+    nr_sss_sequence,
+    qpsk_reference_sequence,
+)
 from .types import SpatialLayout, TensorViewSpec
 
 
@@ -27,10 +33,16 @@ class ResourceGrid:
         numerology: NumerologyConfig,
         allocation: FrameAllocation,
         spatial_layout: SpatialLayout | None = None,
+        slot_index: int = 0,
+        physical_cell_id: int = 0,
+        ssb_block_index: int = 0,
     ) -> None:
         self.numerology = numerology
         self.allocation = allocation
         self.spatial_layout = spatial_layout or SpatialLayout()
+        self.slot_index = int(slot_index)
+        self.physical_cell_id = int(physical_cell_id) % 1008
+        self.ssb_block_index = int(ssb_block_index)
         grid_shape = (numerology.symbols_per_slot, numerology.active_subcarriers)
         self.layer_grid = np.zeros(
             (self.spatial_layout.num_layers, *grid_shape),
@@ -99,12 +111,27 @@ class ResourceGrid:
         for symbol in self.allocation.pdcch_symbols:
             if not (0 <= symbol < self.numerology.symbols_per_slot):
                 continue
-            for sc in range(self.allocation.coreset_subcarriers):
+            start_sc = int(self.allocation.coreset_subcarrier_offset)
+            stop_sc = min(start_sc + int(self.allocation.coreset_subcarriers), self.numerology.active_subcarriers)
+            for sc in range(start_sc, stop_sc):
                 positions.append((symbol, sc))
         return np.asarray(positions, dtype=int)
 
-    def search_space_positions(self) -> np.ndarray:
+    def search_space_positions(self, *, force_active: bool = False) -> np.ndarray:
+        if not force_active and not self.allocation.search_space_active(self.slot_index):
+            return np.zeros((0, 2), dtype=int)
         coreset = self.coreset_positions()
+        if not coreset.size:
+            return np.zeros((0, 2), dtype=int)
+        monitored_symbols = set(
+            self.allocation.monitored_search_space_symbols(
+                self.numerology,
+                slot=self.slot_index,
+                force_active=force_active,
+            )
+        )
+        if monitored_symbols:
+            coreset = coreset[np.isin(coreset[:, 0], list(monitored_symbols))]
         if not coreset.size:
             return np.zeros((0, 2), dtype=int)
         stride = max(1, int(self.allocation.search_space_stride))
@@ -125,7 +152,9 @@ class ResourceGrid:
                 positions.append((symbol, sc))
         return np.asarray(positions, dtype=int)
 
-    def csi_rs_positions(self) -> np.ndarray:
+    def csi_rs_positions(self, *, force_active: bool = False) -> np.ndarray:
+        if not force_active and not self.allocation.csi_rs_active(self.slot_index):
+            return np.zeros((0, 2), dtype=int)
         return comb_positions(
             self.numerology.active_subcarriers,
             symbols=list(self.allocation.csi_rs_symbols),
@@ -133,7 +162,9 @@ class ResourceGrid:
             offset=int(self.allocation.csi_rs_subcarrier_offset),
         )
 
-    def srs_positions(self) -> np.ndarray:
+    def srs_positions(self, *, force_active: bool = False) -> np.ndarray:
+        if not force_active and not self.allocation.srs_active(self.slot_index):
+            return np.zeros((0, 2), dtype=int)
         return comb_positions(
             self.numerology.active_subcarriers,
             symbols=list(self.allocation.srs_symbols),
@@ -141,7 +172,9 @@ class ResourceGrid:
             offset=int(self.allocation.srs_subcarrier_offset),
         )
 
-    def ptrs_positions(self, *, direction: str = "downlink", channel_type: str = "data") -> np.ndarray:
+    def ptrs_positions(self, *, direction: str = "downlink", channel_type: str = "data", force_active: bool = False) -> np.ndarray:
+        if not force_active and not self.allocation.ptrs_active(self.slot_index):
+            return np.zeros((0, 2), dtype=int)
         direction = str(direction).lower()
         channel_type = str(channel_type).lower()
         if direction == "uplink":
@@ -168,55 +201,78 @@ class ResourceGrid:
         filtered = [tuple(position) for position in positions.tolist() if tuple(position) not in reserved]
         return np.asarray(filtered, dtype=int) if filtered else np.zeros((0, 2), dtype=int)
 
-    def ssb_positions(self) -> np.ndarray:
+    def ssb_positions(self, *, force_active: bool = False) -> np.ndarray:
+        if not force_active and not self.allocation.ssb_active(self.slot_index):
+            return np.zeros((0, 2), dtype=int)
         positions = []
         ssb_subcarriers = min(self.allocation.ssb_subcarriers, self.numerology.active_subcarriers)
+        start_sc = int(self.allocation.ssb_subcarrier_offset)
+        stop_sc = min(start_sc + ssb_subcarriers, self.numerology.active_subcarriers)
         for symbol in self.allocation.ssb_symbols:
             if not (0 <= symbol < self.numerology.symbols_per_slot):
                 continue
-            for sc in range(ssb_subcarriers):
+            for sc in range(start_sc, stop_sc):
                 positions.append((symbol, sc))
         return np.asarray(positions, dtype=int) if positions else np.zeros((0, 2), dtype=int)
 
-    def pss_positions(self) -> np.ndarray:
+    def pss_positions(self, *, force_active: bool = False) -> np.ndarray:
         symbols = self.allocation.ssb_symbols
-        if not symbols:
+        if not symbols or (not force_active and not self.allocation.ssb_active(self.slot_index)):
             return np.zeros((0, 2), dtype=int)
-        return np.asarray([(symbols[0], sc) for sc in range(min(self.allocation.ssb_subcarriers, self.numerology.active_subcarriers))], dtype=int)
+        start_sc = int(self.allocation.ssb_subcarrier_offset) + 56
+        stop_sc = min(start_sc + 127, self.numerology.active_subcarriers)
+        return np.asarray([(symbols[0], sc) for sc in range(start_sc, stop_sc)], dtype=int)
 
-    def sss_positions(self) -> np.ndarray:
+    def sss_positions(self, *, force_active: bool = False) -> np.ndarray:
         symbols = self.allocation.ssb_symbols
-        if len(symbols) < 3:
+        if len(symbols) < 3 or (not force_active and not self.allocation.ssb_active(self.slot_index)):
             return np.zeros((0, 2), dtype=int)
         symbol = symbols[min(2, len(symbols) - 1)]
-        return np.asarray([(symbol, sc) for sc in range(min(self.allocation.ssb_subcarriers, self.numerology.active_subcarriers))], dtype=int)
+        start_sc = int(self.allocation.ssb_subcarrier_offset) + 56
+        stop_sc = min(start_sc + 127, self.numerology.active_subcarriers)
+        return np.asarray([(symbol, sc) for sc in range(start_sc, stop_sc)], dtype=int)
 
-    def pbch_dmrs_positions(self) -> np.ndarray:
+    def pbch_dmrs_positions(self, *, force_active: bool = False) -> np.ndarray:
         symbols = self.allocation.ssb_symbols
-        if len(symbols) < 2:
+        if len(symbols) < 2 or (not force_active and not self.allocation.ssb_active(self.slot_index)):
             return np.zeros((0, 2), dtype=int)
-        pbch_dmrs_symbols = [symbols[1]]
-        if len(symbols) >= 4:
-            pbch_dmrs_symbols.append(symbols[3])
-        return comb_positions(
-            min(self.allocation.ssb_subcarriers, self.numerology.active_subcarriers),
-            symbols=pbch_dmrs_symbols,
-            comb=4,
-            offset=int(self.allocation.pbch_dmrs_subcarrier_offset),
-        )
+        v = self.physical_cell_id % 4
+        start_sc = int(self.allocation.ssb_subcarrier_offset)
+        positions = []
+        for symbol in (symbols[1], symbols[3] if len(symbols) >= 4 else None):
+            if symbol is None:
+                continue
+            for relative_sc in range(v, 240, 4):
+                absolute_sc = start_sc + relative_sc
+                if absolute_sc < self.numerology.active_subcarriers:
+                    positions.append((symbol, absolute_sc))
+        if len(symbols) >= 3:
+            symbol = symbols[2]
+            for relative_sc in list(range(v, 48, 4)) + list(range(192 + v, 240, 4)):
+                absolute_sc = start_sc + relative_sc
+                if absolute_sc < self.numerology.active_subcarriers:
+                    positions.append((symbol, absolute_sc))
+        return np.asarray(positions, dtype=int) if positions else np.zeros((0, 2), dtype=int)
 
-    def pbch_positions(self) -> np.ndarray:
+    def pbch_positions(self, *, force_active: bool = False) -> np.ndarray:
         symbols = self.allocation.ssb_symbols
-        if len(symbols) < 2:
+        if len(symbols) < 2 or (not force_active and not self.allocation.ssb_active(self.slot_index)):
             return np.zeros((0, 2), dtype=int)
-        pbch_symbols = [symbols[1]]
-        if len(symbols) >= 4:
-            pbch_symbols.append(symbols[3])
         pbch_positions = []
-        reserved = {tuple(position) for position in self.pbch_dmrs_positions().tolist()}
-        ssb_subcarriers = min(self.allocation.ssb_subcarriers, self.numerology.active_subcarriers)
-        for symbol in pbch_symbols:
-            for sc in range(ssb_subcarriers):
+        reserved = {tuple(position) for position in self.pbch_dmrs_positions(force_active=force_active).tolist()}
+        start_sc = int(self.allocation.ssb_subcarrier_offset)
+        stop_sc = min(start_sc + 240, self.numerology.active_subcarriers)
+        for symbol in (symbols[1], symbols[3] if len(symbols) >= 4 else None):
+            if symbol is None:
+                continue
+            for sc in range(start_sc, stop_sc):
+                if (symbol, sc) not in reserved:
+                    pbch_positions.append((symbol, sc))
+        if len(symbols) >= 3:
+            symbol = symbols[2]
+            for sc in list(range(start_sc, min(start_sc + 48, self.numerology.active_subcarriers))) + list(
+                range(min(start_sc + 192, self.numerology.active_subcarriers), stop_sc)
+            ):
                 if (symbol, sc) not in reserved:
                     pbch_positions.append((symbol, sc))
         return np.asarray(pbch_positions, dtype=int) if pbch_positions else np.zeros((0, 2), dtype=int)
@@ -250,13 +306,32 @@ class ResourceGrid:
                 positions.append((symbol, sc))
         return np.asarray(positions, dtype=int)
 
-    def prach_positions(self) -> np.ndarray:
+    def prach_positions(self, *, force_active: bool = False) -> np.ndarray:
+        if not force_active and not self.allocation.prach_active(self.slot_index):
+            return np.zeros((0, 2), dtype=int)
         positions = []
         subcarriers = min(self.allocation.prach_subcarriers, self.numerology.active_subcarriers)
+        start_sc = int(self.allocation.prach_subcarrier_offset)
+        stop_sc = min(start_sc + subcarriers, self.numerology.active_subcarriers)
         for symbol in self.allocation.prach_symbols(self.numerology):
-            for sc in range(subcarriers):
+            for sc in range(start_sc, stop_sc):
                 positions.append((symbol, sc))
         return np.asarray(positions, dtype=int)
+
+    def procedure_state(self) -> Dict[str, object]:
+        return {
+            "slot_index": int(self.slot_index),
+            "csi_rs_active": bool(self.allocation.csi_rs_active(self.slot_index)),
+            "srs_active": bool(self.allocation.srs_active(self.slot_index)),
+            "ptrs_active": bool(self.allocation.ptrs_active(self.slot_index)),
+            "ssb_active": bool(self.allocation.ssb_active(self.slot_index)),
+            "prach_active": bool(self.allocation.prach_active(self.slot_index)),
+            "search_space_active": bool(self.allocation.search_space_active(self.slot_index)),
+            "search_space_symbols": [
+                int(symbol)
+                for symbol in self.allocation.monitored_search_space_symbols(self.numerology, slot=self.slot_index)
+            ],
+        }
 
     def control_re_mask(self) -> np.ndarray:
         mask = np.zeros(self.shape, dtype=np.uint8)
@@ -319,13 +394,13 @@ class ResourceGrid:
         direction = str(direction).lower()
         if direction == "uplink":
             if channel_type == "prach":
-                positions = self.prach_positions()
+                positions = self.prach_positions(force_active=True)
             else:
                 positions = self.pucch_positions() if channel_type in {"control", "pucch"} else self.pusch_positions()
         elif channel_type in {"pbch", "broadcast"}:
-            positions = self.pbch_positions()
+            positions = self.pbch_positions(force_active=True)
         elif channel_type in {"control", "pdcch"}:
-            positions = self.pdcch_positions()
+            positions = self.search_space_positions(force_active=True)
         else:
             positions = self.pdsch_positions()
         return ChannelMapping(
@@ -436,8 +511,8 @@ class ResourceGrid:
             "port": int(port),
         }
 
-    def insert_csi_rs(self, slot: int = 0, *, port: int = 0, seed: int = 73) -> Dict[str, np.ndarray]:
-        positions = self.csi_rs_positions()
+    def insert_csi_rs(self, slot: int = 0, *, port: int = 0, seed: int = 73, force_active: bool = False) -> Dict[str, np.ndarray]:
+        positions = self.csi_rs_positions(force_active=force_active)
         if not positions.size:
             return {"positions": np.zeros((0, 2), dtype=int), "symbols": np.array([], dtype=np.complex128), "port": int(port)}
         port_view = self.port_view(port)
@@ -454,8 +529,8 @@ class ResourceGrid:
             "port": int(port),
         }
 
-    def insert_srs(self, slot: int = 0, *, port: int = 0, seed: int = 73) -> Dict[str, np.ndarray]:
-        positions = self.srs_positions()
+    def insert_srs(self, slot: int = 0, *, port: int = 0, seed: int = 73, force_active: bool = False) -> Dict[str, np.ndarray]:
+        positions = self.srs_positions(force_active=force_active)
         if not positions.size:
             return {"positions": np.zeros((0, 2), dtype=int), "symbols": np.array([], dtype=np.complex128), "port": int(port)}
         port_view = self.port_view(port)
@@ -480,8 +555,9 @@ class ResourceGrid:
         seed: int = 73,
         direction: str = "downlink",
         channel_type: str = "data",
+        force_active: bool = False,
     ) -> Dict[str, np.ndarray]:
-        positions = self.ptrs_positions(direction=direction, channel_type=channel_type)
+        positions = self.ptrs_positions(direction=direction, channel_type=channel_type, force_active=force_active)
         if not positions.size:
             return {"positions": np.zeros((0, 2), dtype=int), "symbols": np.array([], dtype=np.complex128), "port": int(port)}
         port_view = self.port_view(port)
@@ -498,11 +574,11 @@ class ResourceGrid:
             "port": int(port),
         }
 
-    def insert_ssb(self, slot: int = 0, *, port: int = 0, seed: int = 73) -> Dict[str, np.ndarray]:
+    def insert_ssb(self, slot: int = 0, *, port: int = 0, seed: int = 73, force_active: bool = False) -> Dict[str, np.ndarray]:
         port_view = self.port_view(port)
-        pss_positions = self.pss_positions()
-        sss_positions = self.sss_positions()
-        pbch_dmrs_positions = self.pbch_dmrs_positions()
+        pss_positions = self.pss_positions(force_active=force_active)
+        sss_positions = self.sss_positions(force_active=force_active)
+        pbch_dmrs_positions = self.pbch_dmrs_positions(force_active=force_active)
         if not (pss_positions.size or sss_positions.size or pbch_dmrs_positions.size):
             return {
                 "positions": np.zeros((0, 2), dtype=int),
@@ -514,14 +590,17 @@ class ResourceGrid:
                 "port": int(port),
             }
 
-        def _bpsk(length: int, seed_offset: int) -> np.ndarray:
-            qpsk = qpsk_reference_sequence(length, slot=slot, symbol=seed_offset, seed=int(seed) + seed_offset)
-            return np.sign(np.real(qpsk)).astype(np.float64).astype(np.complex128)
-
-        pss_symbols = _bpsk(pss_positions.shape[0], 3000) if pss_positions.size else np.array([], dtype=np.complex128)
-        sss_symbols = _bpsk(sss_positions.shape[0], 4000) if sss_positions.size else np.array([], dtype=np.complex128)
+        physical_cell_id = int(self.physical_cell_id)
+        n_id_1, n_id_2 = nr_cell_id_components(physical_cell_id)
+        pss_symbols = nr_pss_sequence(n_id_2)[: pss_positions.shape[0]] if pss_positions.size else np.array([], dtype=np.complex128)
+        sss_symbols = nr_sss_sequence(physical_cell_id)[: sss_positions.shape[0]] if sss_positions.size else np.array([], dtype=np.complex128)
         pbch_dmrs_symbols = (
-            qpsk_reference_sequence(pbch_dmrs_positions.shape[0], slot=slot, symbol=5000, seed=int(seed) + 5000)
+            qpsk_reference_sequence(
+                pbch_dmrs_positions.shape[0],
+                slot=slot,
+                symbol=5000 + int(self.ssb_block_index),
+                seed=int(seed) + 5000 + physical_cell_id,
+            )
             if pbch_dmrs_positions.size
             else np.array([], dtype=np.complex128)
         )
@@ -542,9 +621,15 @@ class ResourceGrid:
             "positions": all_positions,
             "symbols": all_symbols,
             "pss_positions": pss_positions.copy(),
+            "pss_symbols": pss_symbols.copy(),
             "sss_positions": sss_positions.copy(),
+            "sss_symbols": sss_symbols.copy(),
             "pbch_dmrs_positions": pbch_dmrs_positions.copy(),
             "pbch_dmrs_symbols": pbch_dmrs_symbols.copy(),
+            "physical_cell_id": physical_cell_id,
+            "n_id_1": int(n_id_1),
+            "n_id_2": int(n_id_2),
+            "ssb_block_index": int(self.ssb_block_index),
             "port": int(port),
         }
 

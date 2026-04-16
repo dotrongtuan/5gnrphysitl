@@ -54,3 +54,25 @@ def test_uplink_baseline_exposes_srs() -> None:
     assert "SRS extraction" in stage_names
     assert "PT-RS insertion" in stage_names
     assert "PT-RS extraction" in stage_names
+
+
+def test_reference_signal_periodicity_changes_visibility_across_slots() -> None:
+    config = _base_config()
+    config["link"]["direction"] = "downlink"
+    config["link"]["channel_type"] = "data"
+    config["simulation"]["capture_slots"] = 2
+    config["frame"]["csi_rs_period_slots"] = 2
+    config["frame"]["csi_rs_slot_offset"] = 1
+    config["frame"]["ptrs_period_slots"] = 2
+    config["frame"]["ptrs_slot_offset"] = 1
+    config["receiver"]["perfect_sync"] = True
+    config["receiver"]["perfect_channel_estimation"] = True
+
+    result = simulate_link_sequence(config)
+
+    slot0 = result["slot_history"][0]["result"]
+    slot1 = result["slot_history"][1]["result"]
+    assert slot0["tx"].metadata.csi_rs["positions"].shape[0] == 0
+    assert slot1["tx"].metadata.csi_rs["positions"].shape[0] > 0
+    assert slot0["tx"].metadata.ptrs["positions"].shape[0] == 0
+    assert slot1["tx"].metadata.ptrs["positions"].shape[0] > 0

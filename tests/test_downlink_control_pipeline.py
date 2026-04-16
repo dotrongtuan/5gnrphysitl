@@ -55,3 +55,19 @@ def test_phy_pipeline_panel_shows_coreset_stage_for_control() -> None:
     assert "coreset / searchspace selection" in stage_titles
     panel.deleteLater()
     app.processEvents()
+
+
+def test_dedicated_control_scenario_keeps_search_space_monitoring_active() -> None:
+    config = _downlink_control_config()
+    config["frame"]["search_space_period_slots"] = 2
+    config["frame"]["search_space_slot_offset"] = 1
+    config["frame"]["search_space_symbols"] = [1]
+
+    result = simulate_link_sequence(config)
+    slot0 = result["slot_history"][0]["result"]
+    slot1 = result["slot_history"][1]["result"]
+
+    assert slot0["tx"].metadata.procedure_state["search_space_active"] is True
+    assert slot1["tx"].metadata.procedure_state["search_space_active"] is True
+    assert slot0["tx"].metadata.procedure_state["search_space_symbols"] == [1]
+    assert slot1["tx"].metadata.procedure_state["search_space_symbols"] == [1]

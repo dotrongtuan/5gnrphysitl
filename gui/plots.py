@@ -261,12 +261,29 @@ class PlotPanel(QWidget):
         if str(tx.metadata.direction).lower() == "downlink" and channel_type in {"control", "pdcch"}:
             from phy.resource_grid import ResourceGrid
 
-            helper = ResourceGrid(numerology, tx.metadata.allocation, spatial_layout=tx.metadata.spatial_layout)
+            helper = ResourceGrid(
+                numerology,
+                tx.metadata.allocation,
+                spatial_layout=tx.metadata.spatial_layout,
+                slot_index=int(getattr(tx.metadata, "slot_index", 0)),
+                physical_cell_id=int(tx.metadata.ssb.get("physical_cell_id", 0)),
+                ssb_block_index=int(tx.metadata.ssb.get("ssb_block_index", 0)),
+            )
             coreset_positions = helper.coreset_positions()
             if coreset_positions.size:
                 allocation_map[coreset_positions[:, 0], coreset_positions[:, 1]] = 1.0
         elif str(tx.metadata.direction).lower() == "downlink" and channel_type in {"pbch", "broadcast"}:
-            ssb_positions = tx.metadata.ssb["positions"]
+            from phy.resource_grid import ResourceGrid
+
+            helper = ResourceGrid(
+                numerology,
+                tx.metadata.allocation,
+                spatial_layout=tx.metadata.spatial_layout,
+                slot_index=int(getattr(tx.metadata, "slot_index", 0)),
+                physical_cell_id=int(tx.metadata.ssb.get("physical_cell_id", 0)),
+                ssb_block_index=int(tx.metadata.ssb.get("ssb_block_index", 0)),
+            )
+            ssb_positions = helper.ssb_positions(force_active=True)
             if ssb_positions.size:
                 allocation_map[ssb_positions[:, 0], ssb_positions[:, 1]] = 1.0
         mapping_positions = tx.metadata.mapping.positions

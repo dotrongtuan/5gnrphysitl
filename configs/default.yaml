@@ -51,12 +51,20 @@ frame:
   pdsch_start_symbol: 2
   pusch_start_symbol: 2
   pucch_symbol_count: 2
+  prach_start_symbol: 0
   prach_symbol_count: 1
+  prach_subcarrier_offset: 0
+  prach_period_slots: 1
+  prach_slot_offset: 0
   coreset_start_symbol: 0
   coreset_symbol_count: 2
   coreset_subcarriers: 72
+  coreset_subcarrier_offset: 0
   search_space_stride: 2
   search_space_offset: 0
+  search_space_symbols: []
+  search_space_period_slots: 1
+  search_space_slot_offset: 0
   csi_rs_symbols: [12]
   srs_symbols: [13]
   ptrs_symbols: [6]
@@ -64,9 +72,18 @@ frame:
   csi_rs_subcarrier_offset: 1
   srs_subcarrier_offset: 2
   ptrs_subcarrier_offset: 3
+  csi_rs_period_slots: 1
+  csi_rs_slot_offset: 0
+  srs_period_slots: 1
+  srs_slot_offset: 0
+  ptrs_period_slots: 1
+  ptrs_slot_offset: 0
   ssb_start_symbol: 0
   ssb_symbol_count: 4
   ssb_subcarriers: 240
+  ssb_subcarrier_offset: 0
+  ssb_period_slots: 1
+  ssb_slot_offset: 0
   pbch_dmrs_subcarrier_offset: 1
   control_subcarriers: 72
   prach_subcarriers: 72
@@ -78,6 +95,19 @@ transport_block:
 control_channel:
   payload_bits: 128
   modulation: QPSK
+
+broadcast:
+  physical_cell_id: 321
+  ssb_block_index: 0
+  system_frame_number: 512
+  half_frame_bit: 0
+  subcarrier_spacing_common: scs30or120
+  k_ssb: 8
+  dmrs_type_a_position: pos2
+  pdcch_config_sib1: 0
+  cell_barred: false
+  intra_freq_reselection: true
+  spare: 0
 
 prach:
   preamble_id: 7

@@ -5,6 +5,7 @@ from typing import Dict
 
 import numpy as np
 
+from .broadcast import build_pbch_semantic_payload, decode_pbch_semantic_payload
 from .coding import CodingMetadata, build_channel_coder
 from .frame_structure import FrameAllocation, build_default_allocation
 from .layer_mapping import combine_layer_symbols, layer_map_symbols
@@ -22,9 +23,12 @@ from .uplink import apply_transform_precoding
 class TxMetadata:
     direction: str
     channel_type: str
+    slot_index: int
+    frame_index: int
     numerology: NumerologyConfig
     allocation: FrameAllocation
     spatial_layout: SpatialLayout
+    procedure_state: Dict[str, object]
     transform_precoding_enabled: bool
     payload_bits: np.ndarray
     coded_bits: np.ndarray
@@ -56,6 +60,7 @@ class TxMetadata:
     prach_root_sequence_index: int | None = None
     prach_cyclic_shift: int | None = None
     prach_sequence: np.ndarray | None = None
+    broadcast_payload_fields: Dict[str, object] = field(default_factory=dict)
     codeword_payload_bits: tuple[np.ndarray, ...] = field(default_factory=tuple)
     codeword_coded_bits: tuple[np.ndarray, ...] = field(default_factory=tuple)
     codeword_scrambled_bits: tuple[np.ndarray, ...] = field(default_factory=tuple)
@@ -80,6 +85,9 @@ class NrTransmitter:
         self.numerology = NumerologyConfig.from_dict(config["numerology"])
         self.allocation = build_default_allocation(self.numerology, config)
         self.spatial_layout = SpatialLayout.from_config(config)
+        self.broadcast_cfg = dict(config.get("broadcast", {}))
+        self.physical_cell_id = int(self.broadcast_cfg.get("physical_cell_id", 0)) % 1008
+        self.ssb_block_index = int(self.broadcast_cfg.get("ssb_block_index", 0))
         self.precoder_spec = build_precoder(config, self.spatial_layout)
         if self.spatial_layout.num_codewords not in {1, 2}:
             raise ValueError("P2 baseline currently supports spatial.num_codewords in {1, 2}.")
@@ -109,12 +117,23 @@ class NrTransmitter:
             start += int(count)
         return tuple(ranges)
 
-    def _generate_payload(self, channel_type: str) -> np.ndarray:
+    def _generate_payload(self, channel_type: str, *, slot_index: int = 0) -> np.ndarray:
         if channel_type.lower() == "prach":
             prach_cfg = self.config.get("prach", {})
             width = int(prach_cfg.get("preamble_id_bits", 6))
             preamble_id = int(prach_cfg.get("preamble_id", 0))
             return preamble_id_to_bits(preamble_id, width=width)
+        if channel_type.lower() in {"pbch", "broadcast"}:
+            size = int(self.config.get("control_channel", {}).get("payload_bits", 128))
+            semantic = build_pbch_semantic_payload(
+                broadcast_cfg=self.broadcast_cfg,
+                numerology_scs_khz=int(self.numerology.scs_khz),
+                slot_index=int(slot_index),
+                slots_per_frame=int(self.numerology.slots_per_frame),
+                payload_length_bits=size,
+                ssb_block_index=int(self.ssb_block_index),
+            )
+            return semantic.payload_bits.copy()
         if channel_type.lower() in {"control", "pdcch", "pucch", "pbch"}:
             size = int(self.config.get("control_channel", {}).get("payload_bits", 128))
         else:
@@ -124,7 +143,13 @@ class NrTransmitter:
     def _ofdm_modulate_view(self, active_grid: np.ndarray) -> np.ndarray:
         waveform = []
         for symbol in range(self.numerology.symbols_per_slot):
-            bins = ResourceGrid(self.numerology, self.allocation, spatial_layout=self.spatial_layout).active_to_ifft_bins(
+            bins = ResourceGrid(
+                self.numerology,
+                self.allocation,
+                spatial_layout=self.spatial_layout,
+                physical_cell_id=self.physical_cell_id,
+                ssb_block_index=self.ssb_block_index,
+            ).active_to_ifft_bins(
                 active_grid[symbol]
             )
             time_symbol = np.fft.ifft(bins, n=self.numerology.fft_size)
@@ -138,8 +163,17 @@ class NrTransmitter:
         ]
         return np.stack(port_waveforms, axis=0) if port_waveforms else np.zeros((0, 0), dtype=np.complex128)
 
-    def _transmit_prach(self, *, direction: str, payload: np.ndarray) -> TxResult:
-        grid = ResourceGrid(self.numerology, self.allocation, spatial_layout=self.spatial_layout)
+    def _transmit_prach(self, *, direction: str, payload: np.ndarray, slot_index: int = 0) -> TxResult:
+        grid = ResourceGrid(
+            self.numerology,
+            self.allocation,
+            spatial_layout=self.spatial_layout,
+            slot_index=slot_index,
+            physical_cell_id=self.physical_cell_id,
+            ssb_block_index=self.ssb_block_index,
+        )
+        procedure_state = grid.procedure_state()
+        procedure_state["prach_active"] = True
         prach_cfg = self.config.get("prach", {})
         preamble_id = bits_to_preamble_id(payload, width=int(prach_cfg.get("preamble_id_bits", 6)))
         mapping = grid.mapping_for(
@@ -190,9 +224,15 @@ class NrTransmitter:
             "positions": np.zeros((0, 2), dtype=int),
             "symbols": np.array([], dtype=np.complex128),
             "pss_positions": np.zeros((0, 2), dtype=int),
+            "pss_symbols": np.array([], dtype=np.complex128),
             "sss_positions": np.zeros((0, 2), dtype=int),
+            "sss_symbols": np.array([], dtype=np.complex128),
             "pbch_dmrs_positions": np.zeros((0, 2), dtype=int),
             "pbch_dmrs_symbols": np.array([], dtype=np.complex128),
+            "physical_cell_id": int(self.physical_cell_id),
+            "n_id_1": int(self.physical_cell_id // 3),
+            "n_id_2": int(self.physical_cell_id % 3),
+            "ssb_block_index": int(self.ssb_block_index),
             "port": 0,
         }
         return TxResult(
@@ -200,9 +240,12 @@ class NrTransmitter:
             metadata=TxMetadata(
                 direction=direction,
                 channel_type="prach",
+                slot_index=int(slot_index),
+                frame_index=int(slot_index) // max(int(self.numerology.slots_per_frame), 1),
                 numerology=self.numerology,
                 allocation=self.allocation,
                 spatial_layout=self.spatial_layout,
+                procedure_state=procedure_state,
                 transform_precoding_enabled=False,
                 payload_bits=payload,
                 coded_bits=payload.copy(),
@@ -237,15 +280,19 @@ class NrTransmitter:
             ),
         )
 
-    def transmit(self, channel_type: str = "data", payload_bits: np.ndarray | None = None) -> TxResult:
+    def transmit(self, channel_type: str = "data", payload_bits: np.ndarray | None = None, slot_index: int = 0) -> TxResult:
         channel_type = channel_type.lower()
         direction = str(self.config.get("link", {}).get("direction", "downlink")).lower()
         if direction not in {"downlink", "uplink"}:
             raise ValueError(f"Unsupported link.direction: {direction}")
 
-        payload = np.asarray(payload_bits, dtype=np.uint8) if payload_bits is not None else self._generate_payload(channel_type)
+        payload = (
+            np.asarray(payload_bits, dtype=np.uint8)
+            if payload_bits is not None
+            else self._generate_payload(channel_type, slot_index=slot_index)
+        )
         if channel_type == "prach":
-            return self._transmit_prach(direction=direction, payload=payload)
+            return self._transmit_prach(direction=direction, payload=payload, slot_index=slot_index)
         transform_precoding_enabled = bool(self.config.get("uplink", {}).get("transform_precoding", False)) and direction == "uplink" and channel_type in {"data", "pusch"}
 
         modulation_name = str(
@@ -258,7 +305,27 @@ class NrTransmitter:
         ).upper()
         mapper = ModulationMapper(modulation_name)
 
-        grid = ResourceGrid(self.numerology, self.allocation, spatial_layout=self.spatial_layout)
+        grid = ResourceGrid(
+            self.numerology,
+            self.allocation,
+            spatial_layout=self.spatial_layout,
+            slot_index=slot_index,
+            physical_cell_id=self.physical_cell_id,
+            ssb_block_index=self.ssb_block_index,
+        )
+        procedure_state = grid.procedure_state()
+        if direction == "downlink" and channel_type in {"control", "pdcch"}:
+            procedure_state["search_space_active"] = True
+            procedure_state["search_space_symbols"] = [
+                int(symbol)
+                for symbol in self.allocation.monitored_search_space_symbols(
+                    self.numerology,
+                    slot=slot_index,
+                    force_active=True,
+                )
+            ]
+        if direction == "downlink" and channel_type in {"pbch", "broadcast"}:
+            procedure_state["ssb_active"] = True
         mapping = grid.mapping_for(
             channel_type=channel_type,
             bits_per_symbol=bits_per_symbol(modulation_name),
@@ -332,9 +399,15 @@ class NrTransmitter:
             "positions": np.zeros((0, 2), dtype=int),
             "symbols": np.array([], dtype=np.complex128),
             "pss_positions": np.zeros((0, 2), dtype=int),
+            "pss_symbols": np.array([], dtype=np.complex128),
             "sss_positions": np.zeros((0, 2), dtype=int),
+            "sss_symbols": np.array([], dtype=np.complex128),
             "pbch_dmrs_positions": np.zeros((0, 2), dtype=int),
             "pbch_dmrs_symbols": np.array([], dtype=np.complex128),
+            "physical_cell_id": int(self.physical_cell_id),
+            "n_id_1": int(self.physical_cell_id // 3),
+            "n_id_2": int(self.physical_cell_id % 3),
+            "ssb_block_index": int(self.ssb_block_index),
             "port": 0,
         }
         insert_csi_rs = bool(reference_cfg.get("enable_csi_rs", True)) and direction == "downlink" and channel_type in {"data", "pdsch", "control", "pdcch"}
@@ -345,18 +418,18 @@ class NrTransmitter:
         )
         insert_ssb = direction == "downlink" and channel_type in {"pbch", "broadcast"}
         csi_rs = (
-            grid.insert_csi_rs(slot=0, seed=int(reference_cfg.get("sequence_seed", 73)))
+            grid.insert_csi_rs(slot=slot_index, seed=int(reference_cfg.get("sequence_seed", 73)))
             if insert_csi_rs
             else empty_rs.copy()
         )
         srs = (
-            grid.insert_srs(slot=0, seed=int(reference_cfg.get("sequence_seed", 73)))
+            grid.insert_srs(slot=slot_index, seed=int(reference_cfg.get("sequence_seed", 73)))
             if insert_srs
             else empty_rs.copy()
         )
         ptrs = (
             grid.insert_ptrs(
-                slot=0,
+                slot=slot_index,
                 seed=int(reference_cfg.get("sequence_seed", 73)),
                 direction=direction,
                 channel_type=channel_type,
@@ -365,22 +438,32 @@ class NrTransmitter:
             else empty_rs.copy()
         )
         ssb = (
-            grid.insert_ssb(slot=0, seed=int(reference_cfg.get("sequence_seed", 73)))
+            grid.insert_ssb(
+                slot=slot_index,
+                seed=int(reference_cfg.get("sequence_seed", 73)),
+                force_active=channel_type in {"pbch", "broadcast"},
+            )
             if insert_ssb
             else empty_ssb.copy()
         )
-        dmrs = grid.insert_dmrs(slot=0) if channel_type not in {"pbch", "broadcast"} else empty_rs.copy()
+        dmrs = grid.insert_dmrs(slot=slot_index) if channel_type not in {"pbch", "broadcast"} else empty_rs.copy()
         port_waveforms = self._ofdm_modulate(grid)
         waveform = port_waveforms[0].copy() if port_waveforms.shape[0] == 1 else port_waveforms.copy()
+        broadcast_payload_fields = {}
+        if channel_type in {"pbch", "broadcast"}:
+            broadcast_payload_fields = decode_pbch_semantic_payload(payload)
 
         return TxResult(
             waveform=waveform,
             metadata=TxMetadata(
                 direction=direction,
                 channel_type=channel_type,
+                slot_index=int(slot_index),
+                frame_index=int(slot_index) // max(int(self.numerology.slots_per_frame), 1),
                 numerology=self.numerology,
                 allocation=self.allocation,
                 spatial_layout=self.spatial_layout,
+                procedure_state=procedure_state,
                 transform_precoding_enabled=transform_precoding_enabled,
                 payload_bits=payload,
                 coded_bits=coded_bits,
@@ -408,6 +491,7 @@ class NrTransmitter:
                 tx_symbols=tx_symbols,
                 tx_port_waveforms=port_waveforms.copy(),
                 sample_rate=self.numerology.sample_rate,
+                broadcast_payload_fields=broadcast_payload_fields,
                 codeword_payload_bits=tuple(block.copy() for block in codeword_payload_bits),
                 codeword_coded_bits=tuple(block.copy() for block in codeword_coded_bits),
                 codeword_scrambled_bits=tuple(block.copy() for block in codeword_scrambled_bits),

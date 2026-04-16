@@ -886,6 +886,7 @@ Notes:
 - For classroom-ready lab setups, GUI settings, commands, expected results, and discussion prompts, see `docs/TEACHING_LABS_MATRIX.md`.
 - For an instructor-led `90-minute` live classroom demo plan, see `docs/TEACHING_DEMO_90_MINUTE.md`.
 - For a student-facing structured `6-session` teaching lab series with deliverables, see `docs/TEACHING_LABS_6_SESSION_SERIES.md`.
+- For a ChatGPT-ready prompt pack that can generate teaching slide decks from this repository, see `docs/CHATGPT_SLIDE_PROMPT_PACK_5G_PHY.md`.
 - For the proposed V2 target architecture of a more realistic NR PHY simulator, see `docs/NR_PHY_SIMULATOR_V2_ARCHITECTURE.md`.
 - For the implementation backlog to move from SISO teaching PHY to MIMO/HARQ/CSI-capable PHY, see `docs/NR_PHY_SIMULATOR_V2_BACKLOG.md`.
 - `docs/SHOWCASES_3GPP_PHY.md` also includes a checklist to distinguish a teaching model from a conformance-grade NR PHY.

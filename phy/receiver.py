@@ -5,6 +5,7 @@ from typing import Dict
 
 import numpy as np
 
+from .broadcast import decode_pbch_semantic_payload
 from .channel_estimation import channel_mse, ls_estimate_from_dmrs
 from .coding import build_channel_coder, rate_recover_llrs
 from .equalization import equalize
@@ -21,6 +22,7 @@ from .kpi import (
 from .mimo_detection import detect_layers
 from .precoding import recover_layers_from_ports
 from .prach import detect_prach_preamble, preamble_id_to_bits
+from .reference_signals import detect_nr_pss, detect_nr_sss
 from .resource_grid import ResourceGrid
 from .scrambling import descramble_llrs
 from .synchronization import correct_cfo, estimate_cfo_from_cp, estimate_symbol_timing
@@ -51,8 +53,17 @@ class RxResult:
     re_ptrs_symbols: np.ndarray
     re_ssb_positions: np.ndarray
     re_ssb_symbols: np.ndarray
+    re_pss_positions: np.ndarray
+    re_pss_symbols: np.ndarray
+    re_sss_positions: np.ndarray
+    re_sss_symbols: np.ndarray
     re_pbch_dmrs_positions: np.ndarray
     re_pbch_dmrs_symbols: np.ndarray
+    pss_candidate_metrics: np.ndarray
+    sss_candidate_metrics: np.ndarray
+    detected_n_id_2: int | None
+    detected_n_id_1: int | None
+    detected_cell_id: int | None
     channel_tensor: np.ndarray
     effective_channel_tensor: np.ndarray
     rx_port_symbols: np.ndarray
@@ -85,6 +96,7 @@ class RxResult:
     prach_candidate_metrics: np.ndarray | None = None
     detected_preamble_id: int | None = None
     prach_detection_metric: float | None = None
+    decoded_broadcast_payload: Dict[str, object] | None = None
 
 
 class NrReceiver:
@@ -192,7 +204,14 @@ class NrReceiver:
 
     def _ofdm_demodulate(self, waveform: np.ndarray, tx_metadata: TxMetadata, timing_offset: int) -> Dict[str, np.ndarray]:
         numerology = tx_metadata.numerology
-        grid = ResourceGrid(numerology, tx_metadata.allocation, spatial_layout=tx_metadata.spatial_layout)
+        grid = ResourceGrid(
+            numerology,
+            tx_metadata.allocation,
+            spatial_layout=tx_metadata.spatial_layout,
+            slot_index=int(getattr(tx_metadata, "slot_index", 0)),
+            physical_cell_id=int(getattr(tx_metadata, "ssb", {}).get("physical_cell_id", 0)),
+            ssb_block_index=int(getattr(tx_metadata, "ssb", {}).get("ssb_block_index", 0)),
+        )
         symbol_length = numerology.fft_size + numerology.cp_length
         samples_needed = numerology.symbols_per_slot * symbol_length
         waveform_tensor = np.asarray(waveform, dtype=np.complex128)
@@ -342,8 +361,17 @@ class NrReceiver:
             re_ptrs_symbols=np.array([], dtype=np.complex128),
             re_ssb_positions=np.zeros((0, 2), dtype=int),
             re_ssb_symbols=np.array([], dtype=np.complex128),
+            re_pss_positions=np.zeros((0, 2), dtype=int),
+            re_pss_symbols=np.array([], dtype=np.complex128),
+            re_sss_positions=np.zeros((0, 2), dtype=int),
+            re_sss_symbols=np.array([], dtype=np.complex128),
             re_pbch_dmrs_positions=np.zeros((0, 2), dtype=int),
             re_pbch_dmrs_symbols=np.array([], dtype=np.complex128),
+            pss_candidate_metrics=np.array([], dtype=np.float64),
+            sss_candidate_metrics=np.array([], dtype=np.float64),
+            detected_n_id_2=None,
+            detected_n_id_1=None,
+            detected_cell_id=None,
             channel_tensor=np.ones((1, 1, tx_metadata.numerology.symbols_per_slot, tx_metadata.numerology.active_subcarriers), dtype=np.complex128),
             effective_channel_tensor=np.ones((1, 1, tx_metadata.numerology.symbols_per_slot, tx_metadata.numerology.active_subcarriers), dtype=np.complex128),
             rx_port_symbols=equalized.reshape(1, -1),
@@ -376,6 +404,7 @@ class NrReceiver:
             prach_candidate_metrics=detection.candidate_metrics,
             detected_preamble_id=int(detection.detected_preamble_id),
             prach_detection_metric=float(detection.metric),
+            decoded_broadcast_payload=None,
         )
 
     def receive(self, waveform: np.ndarray, tx_metadata: TxMetadata, channel_state: Dict | None = None) -> RxResult:
@@ -501,12 +530,36 @@ class NrReceiver:
             if ssb_positions.size
             else np.array([], dtype=np.complex128)
         )
+        pss_positions = np.asarray(tx_metadata.ssb.get("pss_positions", np.zeros((0, 2), dtype=int)), dtype=int)
+        re_pss_symbols = (
+            rx_grid[pss_positions[:, 0], pss_positions[:, 1]]
+            if pss_positions.size
+            else np.array([], dtype=np.complex128)
+        )
+        sss_positions = np.asarray(tx_metadata.ssb.get("sss_positions", np.zeros((0, 2), dtype=int)), dtype=int)
+        re_sss_symbols = (
+            rx_grid[sss_positions[:, 0], sss_positions[:, 1]]
+            if sss_positions.size
+            else np.array([], dtype=np.complex128)
+        )
         pbch_dmrs_positions = np.asarray(tx_metadata.ssb.get("pbch_dmrs_positions", np.zeros((0, 2), dtype=int)), dtype=int)
         re_pbch_dmrs_symbols = (
             rx_grid[pbch_dmrs_positions[:, 0], pbch_dmrs_positions[:, 1]]
             if pbch_dmrs_positions.size
             else np.array([], dtype=np.complex128)
         )
+        detected_n_id_2: int | None = None
+        detected_n_id_1: int | None = None
+        detected_cell_id: int | None = None
+        pss_candidate_metrics = np.array([], dtype=np.float64)
+        sss_candidate_metrics = np.array([], dtype=np.float64)
+        if str(tx_metadata.channel_type).lower() in {"pbch", "broadcast"}:
+            if re_pss_symbols.size == 127:
+                detected_n_id_2, pss_candidate_metrics = detect_nr_pss(re_pss_symbols)
+            if re_sss_symbols.size == 127 and detected_n_id_2 is not None:
+                detected_n_id_1, _, sss_candidate_metrics = detect_nr_sss(re_sss_symbols, detected_n_id_2)
+            if detected_n_id_1 is not None and detected_n_id_2 is not None:
+                detected_cell_id = 3 * int(detected_n_id_1) + int(detected_n_id_2)
         h_symbols = h_full[positions[:, 0], positions[:, 1]]
         noise_variance = float(channel_state.get("noise_variance", 1e-3))
         detector_mode = str(receiver_cfg.get("mimo_detector", receiver_cfg.get("equalizer", "mmse"))).lower()
@@ -569,6 +622,9 @@ class NrReceiver:
         decoder_input_llrs = np.asarray(codeword_decode["decoder_input_llrs"], dtype=np.float64)
         recovered_bits = np.asarray(codeword_decode["recovered_bits"], dtype=np.uint8)
         crc_ok = bool(codeword_decode["crc_ok"])
+        decoded_broadcast_payload = None
+        if str(tx_metadata.channel_type).lower() in {"pbch", "broadcast"}:
+            decoded_broadcast_payload = decode_pbch_semantic_payload(recovered_bits)
         recovered_bits_by_codeword = tuple(codeword_decode["recovered_bits_by_codeword"])
         llrs_by_codeword = tuple(codeword_decode["llrs_by_codeword"])
         descrambled_llrs_by_codeword = tuple(codeword_decode["descrambled_llrs_by_codeword"])
@@ -602,7 +658,16 @@ class NrReceiver:
             crc_ok=crc_ok,
             channel_estimation_mse=channel_est_mse,
             synchronization_error_samples=float(timing_offset - int(channel_state.get("sto_samples", 0))),
-            extra={"cfo_estimate_hz": cfo_estimate_hz, "mimo_detector": detector_mode},
+            extra={
+                "cfo_estimate_hz": cfo_estimate_hz,
+                "mimo_detector": detector_mode,
+                "detected_n_id_2": float(detected_n_id_2) if detected_n_id_2 is not None else -1.0,
+                "detected_n_id_1": float(detected_n_id_1) if detected_n_id_1 is not None else -1.0,
+                "detected_cell_id": float(detected_cell_id) if detected_cell_id is not None else -1.0,
+                "expected_cell_id": float(tx_metadata.ssb.get("physical_cell_id", -1)),
+                "decoded_system_frame_number": float(decoded_broadcast_payload["system_frame_number"]) if decoded_broadcast_payload else -1.0,
+                "decoded_k_ssb": float(decoded_broadcast_payload["k_ssb"]) if decoded_broadcast_payload else -1.0,
+            },
         )
 
         return RxResult(
@@ -646,8 +711,17 @@ class NrReceiver:
             re_ptrs_symbols=re_ptrs_symbols,
             re_ssb_positions=ssb_positions,
             re_ssb_symbols=re_ssb_symbols,
+            re_pss_positions=pss_positions,
+            re_pss_symbols=re_pss_symbols,
+            re_sss_positions=sss_positions,
+            re_sss_symbols=re_sss_symbols,
             re_pbch_dmrs_positions=pbch_dmrs_positions,
             re_pbch_dmrs_symbols=re_pbch_dmrs_symbols,
+            pss_candidate_metrics=pss_candidate_metrics,
+            sss_candidate_metrics=sss_candidate_metrics,
+            detected_n_id_2=detected_n_id_2,
+            detected_n_id_1=detected_n_id_1,
+            detected_cell_id=detected_cell_id,
             channel_tensor=h_tensor,
             effective_channel_tensor=effective_channel_tensor,
             rx_port_symbols=rx_port_symbols,
@@ -676,4 +750,5 @@ class NrReceiver:
             timing_offset=timing_offset,
             cfo_estimate_hz=cfo_estimate_hz,
             kpis=kpis,
+            decoded_broadcast_payload=decoded_broadcast_payload,
         )

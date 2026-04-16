@@ -28,6 +28,8 @@ def test_resource_grid_positions_are_non_empty() -> None:
     assert grid.pbch_positions().shape[0] > 0
     assert grid.pbch_dmrs_positions().shape[0] > 0
     assert grid.dmrs_positions().shape[0] > 0
+    assert grid.pss_positions().shape[0] == 127
+    assert grid.sss_positions().shape[0] == 127
 
 
 def test_resource_grid_exposes_tensor_views_and_preserves_legacy_grid() -> None:
@@ -76,3 +78,77 @@ def test_resource_grid_exposes_tensor_views_and_preserves_legacy_grid() -> None:
     assert np.sum(masks["search_space"]) <= np.sum(masks["coreset"])
     assert np.sum(masks["ptrs"]) > 0
     assert np.sum(masks["ssb"]) > 0
+
+
+def test_resource_grid_supports_slot_aware_procedure_scheduling_and_offsets() -> None:
+    numerology = NumerologyConfig(scs_khz=30, fft_size=512, cp_length=36, n_rb=24)
+    config = {
+        "frame": {
+            "control_symbols": 2,
+            "pdsch_start_symbol": 2,
+            "pusch_start_symbol": 2,
+            "dmrs_symbols": [3, 10],
+            "prach_start_symbol": 1,
+            "prach_subcarriers": 24,
+            "prach_subcarrier_offset": 36,
+            "prach_period_slots": 4,
+            "prach_slot_offset": 1,
+            "coreset_start_symbol": 0,
+            "coreset_symbol_count": 2,
+            "coreset_subcarriers": 24,
+            "coreset_subcarrier_offset": 12,
+            "search_space_symbols": [1],
+            "search_space_period_slots": 3,
+            "search_space_slot_offset": 1,
+            "csi_rs_symbols": [12],
+            "csi_rs_period_slots": 2,
+            "csi_rs_slot_offset": 1,
+            "srs_symbols": [13],
+            "srs_period_slots": 2,
+            "srs_slot_offset": 1,
+            "ptrs_symbols": [6],
+            "ptrs_period_slots": 5,
+            "ptrs_slot_offset": 2,
+            "ssb_start_symbol": 0,
+            "ssb_symbol_count": 4,
+            "ssb_subcarriers": 120,
+            "ssb_subcarrier_offset": 48,
+            "ssb_period_slots": 2,
+            "ssb_slot_offset": 1,
+        },
+        "reference_signals": {"enable_csi_rs": True, "enable_srs": True, "enable_ptrs": True},
+    }
+    allocation = build_default_allocation(numerology, config)
+
+    inactive_grid = ResourceGrid(numerology, allocation, slot_index=0)
+    active_grid = ResourceGrid(numerology, allocation, slot_index=1)
+
+    assert inactive_grid.csi_rs_positions().shape[0] == 0
+    assert active_grid.csi_rs_positions().shape[0] > 0
+    assert inactive_grid.srs_positions().shape[0] == 0
+    assert active_grid.srs_positions().shape[0] > 0
+    assert inactive_grid.ssb_positions().shape[0] == 0
+    assert active_grid.ssb_positions().shape[0] > 0
+    assert inactive_grid.prach_positions().shape[0] == 0
+    assert active_grid.prach_positions().shape[0] > 0
+    assert inactive_grid.search_space_positions().shape[0] == 0
+    assert active_grid.search_space_positions().shape[0] > 0
+
+    coreset_positions = active_grid.coreset_positions()
+    assert np.min(coreset_positions[:, 1]) == 12
+    assert set(active_grid.search_space_positions()[:, 0].tolist()) == {1}
+    assert np.min(active_grid.ssb_positions()[:, 1]) == 48
+    assert np.min(active_grid.prach_positions()[:, 1]) == 36
+    assert set(active_grid.prach_positions()[:, 0].tolist()) == {1}
+
+
+def test_pbch_dmrs_positions_follow_physical_cell_id_offset() -> None:
+    numerology = NumerologyConfig(scs_khz=30, fft_size=512, cp_length=36, n_rb=24)
+    config = {"frame": {"ssb_start_symbol": 0, "ssb_symbol_count": 4, "ssb_subcarriers": 240, "ssb_subcarrier_offset": 0}}
+    allocation = build_default_allocation(numerology, config)
+    grid = ResourceGrid(numerology, allocation, physical_cell_id=321)
+
+    pbch_dmrs = grid.pbch_dmrs_positions(force_active=True)
+
+    assert pbch_dmrs.shape[0] > 0
+    assert int(np.min(pbch_dmrs[:, 1]) % 4) == (321 % 4)

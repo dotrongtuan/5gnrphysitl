@@ -713,9 +713,18 @@ def _build_pipeline_trace(
     ]
 
     if direction == "downlink" and tx_meta.channel_type in {"control", "pdcch"}:
-        helper = ResourceGrid(tx_meta.numerology, tx_meta.allocation, spatial_layout=tx_meta.spatial_layout)
+        helper = ResourceGrid(
+            tx_meta.numerology,
+            tx_meta.allocation,
+            spatial_layout=tx_meta.spatial_layout,
+            slot_index=int(getattr(tx_meta, "slot_index", 0)),
+            physical_cell_id=int(tx_meta.ssb.get("physical_cell_id", 0)),
+            ssb_block_index=int(tx_meta.ssb.get("ssb_block_index", 0)),
+        )
         coreset_mask = helper.coreset_re_mask().astype(np.float32)
-        search_space_mask = helper.search_space_re_mask().astype(np.float32)
+        search_space_mask = np.zeros_like(coreset_mask)
+        if tx_meta.mapping.positions.size:
+            search_space_mask[tx_meta.mapping.positions[:, 0], tx_meta.mapping.positions[:, 1]] = 1.0
         stages.insert(
             6,
             {
@@ -730,13 +739,25 @@ def _build_pipeline_trace(
                 "output_shape": [int(dim) for dim in np.asarray(search_space_mask).shape],
                 "notes": (
                     f"CORESET RE count: {int(np.sum(coreset_mask))} | "
-                    f"SearchSpace RE count: {int(np.sum(search_space_mask))}"
+                    f"SearchSpace RE count: {int(np.sum(search_space_mask))} | "
+                    f"Active: {bool(getattr(tx_meta, 'procedure_state', {}).get('search_space_active', True))} | "
+                    f"Symbols: {getattr(tx_meta, 'procedure_state', {}).get('search_space_symbols', [])}"
                 ),
             },
         )
     if direction == "downlink" and tx_meta.channel_type in {"pbch", "broadcast"}:
-        helper = ResourceGrid(tx_meta.numerology, tx_meta.allocation, spatial_layout=tx_meta.spatial_layout)
-        ssb_mask = helper.ssb_re_mask().astype(np.float32)
+        helper = ResourceGrid(
+            tx_meta.numerology,
+            tx_meta.allocation,
+            spatial_layout=tx_meta.spatial_layout,
+            slot_index=int(getattr(tx_meta, "slot_index", 0)),
+            physical_cell_id=int(tx_meta.ssb.get("physical_cell_id", 0)),
+            ssb_block_index=int(tx_meta.ssb.get("ssb_block_index", 0)),
+        )
+        ssb_mask = np.zeros(helper.shape, dtype=np.float32)
+        helper_ssb_positions = helper.ssb_positions(force_active=True)
+        if helper_ssb_positions.size:
+            ssb_mask[helper_ssb_positions[:, 0], helper_ssb_positions[:, 1]] = 1.0
         stages.insert(
             6,
             {
@@ -751,7 +772,55 @@ def _build_pipeline_trace(
                 "output_shape": [int(dim) for dim in np.asarray(ssb_mask).shape],
                 "notes": (
                     f"SSB RE count: {int(np.sum(ssb_mask))} | "
-                    f"PBCH payload RE count: {int(tx_meta.mapping.positions.shape[0])}"
+                    f"PBCH payload RE count: {int(tx_meta.mapping.positions.shape[0])} | "
+                    f"Active: {bool(getattr(tx_meta, 'procedure_state', {}).get('ssb_active', True))}"
+                ),
+            },
+        )
+        stages.insert(
+            next((index for index, stage in enumerate(stages) if stage["stage"] == "Channel estimation"), len(stages)),
+            {
+                "section": "RX",
+                "stage": "PSS / SSS cell search",
+                "domain": "text",
+                "description": "The receiver correlates the received PSS and SSS against NR candidates to infer N_ID^(2), N_ID^(1), and the physical cell ID before interpreting PBCH broadcast context.",
+                "preview_kind": "text",
+                "data": {
+                    "expected_cell_id": int(tx_meta.ssb.get("physical_cell_id", -1)),
+                    "detected_cell_id": int(rx_meta.detected_cell_id) if rx_meta.detected_cell_id is not None else None,
+                    "detected_n_id_1": int(rx_meta.detected_n_id_1) if rx_meta.detected_n_id_1 is not None else None,
+                    "detected_n_id_2": int(rx_meta.detected_n_id_2) if rx_meta.detected_n_id_2 is not None else None,
+                    "pss_peak": float(np.max(rx_meta.pss_candidate_metrics)) if rx_meta.pss_candidate_metrics.size else 0.0,
+                    "sss_peak": float(np.max(rx_meta.sss_candidate_metrics)) if rx_meta.sss_candidate_metrics.size else 0.0,
+                },
+                "artifact_type": "text",
+                "input_shape": [127],
+                "output_shape": [3],
+                "notes": (
+                    f"Expected cell ID: {int(tx_meta.ssb.get('physical_cell_id', -1))} | "
+                    f"Detected cell ID: {int(rx_meta.detected_cell_id) if rx_meta.detected_cell_id is not None else 'n/a'}"
+                ),
+            },
+        )
+        stages.insert(
+            next((index for index, stage in enumerate(stages) if stage["stage"] == "Decoding + CRC"), len(stages)) + 1,
+            {
+                "section": "RX",
+                "stage": "PBCH / MIB semantic decode",
+                "domain": "text",
+                "description": "Recovered PBCH bits are interpreted as a semantic MIB-aware baseline payload, exposing broadcast system information fields that are useful for teaching and GUI introspection.",
+                "preview_kind": "text",
+                "data": {
+                    "tx_broadcast_fields": dict(getattr(tx_meta, "broadcast_payload_fields", {})),
+                    "rx_broadcast_fields": dict(getattr(rx_meta, "decoded_broadcast_payload", {}) or {}),
+                },
+                "artifact_type": "text",
+                "input_shape": [int(dim) for dim in np.asarray(rx_meta.recovered_bits).shape],
+                "output_shape": [32],
+                "notes": (
+                    f"SFN: {getattr(rx_meta, 'decoded_broadcast_payload', {}).get('system_frame_number', 'n/a')} | "
+                    f"kSSB: {getattr(rx_meta, 'decoded_broadcast_payload', {}).get('k_ssb', 'n/a')} | "
+                    f"SCS common: {getattr(rx_meta, 'decoded_broadcast_payload', {}).get('subcarrier_spacing_common', 'n/a')}"
                 ),
             },
         )
@@ -803,7 +872,10 @@ def _build_pipeline_trace(
                 "artifact_type": "grid",
                 "input_shape": [int(dim) for dim in np.asarray(tx_meta.tx_grid_data).shape],
                 "output_shape": [int(dim) for dim in np.asarray(tx_meta.tx_grid).shape],
-                "notes": f"CSI-RS RE count: {int(np.asarray(tx_meta.csi_rs['positions']).shape[0])}",
+                "notes": (
+                    f"CSI-RS RE count: {int(np.asarray(tx_meta.csi_rs['positions']).shape[0])} | "
+                    f"Active: {bool(getattr(tx_meta, 'procedure_state', {}).get('csi_rs_active', True))}"
+                ),
             },
         )
     if np.asarray(tx_meta.ptrs["positions"]).size:
@@ -820,7 +892,10 @@ def _build_pipeline_trace(
                 "artifact_type": "grid",
                 "input_shape": [int(dim) for dim in np.asarray(tx_meta.tx_grid_data).shape],
                 "output_shape": [int(dim) for dim in np.asarray(tx_meta.tx_grid).shape],
-                "notes": f"PT-RS RE count: {int(np.asarray(tx_meta.ptrs['positions']).shape[0])}",
+                "notes": (
+                    f"PT-RS RE count: {int(np.asarray(tx_meta.ptrs['positions']).shape[0])} | "
+                    f"Active: {bool(getattr(tx_meta, 'procedure_state', {}).get('ptrs_active', True))}"
+                ),
             },
         )
     if np.asarray(tx_meta.srs["positions"]).size:
@@ -837,7 +912,10 @@ def _build_pipeline_trace(
                 "artifact_type": "grid",
                 "input_shape": [int(dim) for dim in np.asarray(tx_meta.tx_grid_data).shape],
                 "output_shape": [int(dim) for dim in np.asarray(tx_meta.tx_grid).shape],
-                "notes": f"SRS RE count: {int(np.asarray(tx_meta.srs['positions']).shape[0])}",
+                "notes": (
+                    f"SRS RE count: {int(np.asarray(tx_meta.srs['positions']).shape[0])} | "
+                    f"Active: {bool(getattr(tx_meta, 'procedure_state', {}).get('srs_active', True))}"
+                ),
             },
         )
     if np.asarray(rx_meta.re_csi_rs_positions).size:
@@ -1053,6 +1131,7 @@ def simulate_link(
     channel_type: str | None = None,
     payload_bits: np.ndarray | None = None,
     seed_offset: int = 0,
+    timeline_index: int = 0,
 ) -> Dict:
     config = deepcopy(config)
     if seed_offset:
@@ -1062,6 +1141,7 @@ def simulate_link(
     tx_result = transmitter.transmit(
         channel_type=channel_type or config.get("link", {}).get("channel_type", "data"),
         payload_bits=payload_bits,
+        slot_index=int(timeline_index),
     )
 
     simulation_seed = int(config.get("simulation", {}).get("seed", 0))
@@ -1230,6 +1310,7 @@ def simulate_link_sequence(
             channel_type=active_channel_type,
             payload_bits=payload_bits,
             seed_offset=timeline_index,
+            timeline_index=timeline_index,
         )
         slot_results.append(slot_result)
         schedule_trace.append(
@@ -1297,6 +1378,7 @@ def simulate_file_transfer(
             channel_type=active_channel_type,
             payload_bits=chunk.bits,
             seed_offset=chunk.index,
+            timeline_index=chunk.index,
         )
         result["transfer_chunk"] = {
             "index": chunk.index,
