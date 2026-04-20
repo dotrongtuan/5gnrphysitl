@@ -188,6 +188,25 @@ class NrPhyResearchApp(QMainWindow):
         if result is not None:
             if result.get("captured_slots"):
                 status["Captured slot results"] = int(result.get("captured_slots", 1))
+            sequence_summary = result.get("sequence_summary", {})
+            if sequence_summary.get("scheduler_enabled"):
+                status["Scheduler replay"] = "Enabled"
+                schedule_trace = sequence_summary.get("schedule_trace", [])
+                if schedule_trace:
+                    latest_grant = schedule_trace[-1]
+                    status["Latest grant"] = latest_grant.get("grant_id", "n/a")
+                    status["Latest scheduled MCS"] = (
+                        f"{latest_grant.get('scheduled_modulation', latest_grant.get('modulation', 'n/a'))} / "
+                        f"rate {float(latest_grant.get('scheduled_target_rate', latest_grant.get('target_rate', 0.0))):.3f}"
+                    )
+            if sequence_summary.get("harq_enabled"):
+                status["HARQ"] = "Enabled"
+                status["HARQ ACK/NACK"] = f"{int(sequence_summary.get('harq_ack_count', 0))} / {int(sequence_summary.get('harq_nack_count', 0))}"
+                harq_trace = sequence_summary.get("harq_trace", [])
+                if harq_trace:
+                    latest_harq = harq_trace[-1]
+                    status["Latest HARQ process"] = latest_harq.get("process_id", "n/a")
+                    status["Latest HARQ RV"] = latest_harq.get("rv", "n/a")
             if result.get("csi_feedback"):
                 csi_feedback = result["csi_feedback"]
                 status["Latest CQI"] = int(csi_feedback.get("cqi", 0))
@@ -255,6 +274,14 @@ class NrPhyResearchApp(QMainWindow):
                 notes.append(
                     "CSI replay is enabled. Later captured slots may adapt the scheduled precoder and rank using earlier CSI reports."
                 )
+        if bool(config.get("scheduler", {}).get("enabled", False)):
+            notes.append(
+                "DCI-like scheduler replay is enabled. Captured slots follow configured grants for MCS, layers, precoder, RV, and resource allocation."
+            )
+        if bool(config.get("harq", {}).get("enabled", False)):
+            notes.append(
+                "HARQ baseline is enabled. Multi-slot runs expose process ID, NDI, RV sequence, ACK/NACK, and soft-buffer combining in the PHY Pipeline."
+            )
         if str(link.get("direction", "downlink")).lower() == "uplink":
             channel_type = str(link.get("channel_type", "data")).lower()
             if channel_type == "prach":
@@ -308,6 +335,17 @@ class NrPhyResearchApp(QMainWindow):
                     )
                 if summary.get("csi_replay_enabled"):
                     notes.append("Sequence replay is applying CSI feedback across captured slots.")
+                if summary.get("scheduler_enabled") and summary.get("schedule_trace"):
+                    notes.append(
+                        f"Scheduler replay produced {len(summary['schedule_trace'])} grant entries. "
+                        "Open PHY Pipeline to inspect the Grant Timeline stage."
+                    )
+                if summary.get("harq_enabled") and summary.get("harq_trace"):
+                    notes.append(
+                        f"HARQ trace: ACK={int(summary.get('harq_ack_count', 0))}, "
+                        f"NACK={int(summary.get('harq_nack_count', 0))}. "
+                        "Open PHY Pipeline to inspect RV and soft-buffer evolution."
+                    )
             channel_state = result.get("channel_state", {})
             if channel_state.get("gnu_radio_requested") and not channel_state.get("gnu_radio_used"):
                 notes.append("GNU Radio loopback request fell back to the Python-only channel path at runtime.")

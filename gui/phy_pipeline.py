@@ -967,6 +967,7 @@ class PhyPipelinePanel(QWidget):
             else np.zeros_like(np.asarray(tx_meta.precoder_matrix, dtype=np.complex128))
         )
         csi_feedback = dict(result.get("csi_feedback", {}))
+        scheduler_harq_stages = self._scheduler_harq_stage_models(result)
 
         stages = self._stage_definitions(
             result=result,
@@ -1096,7 +1097,188 @@ class PhyPipelinePanel(QWidget):
         transfer = result.get("file_transfer")
         if transfer:
             stages = [*self._file_transfer_entry_stages(result), *stages, *self._file_transfer_exit_stages(result)]
+        if scheduler_harq_stages:
+            stages = [*scheduler_harq_stages, *stages]
         return [normalize_pipeline_stage(stage) for stage in stages]
+
+    def _sequence_summary_for_active_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        root_result = self.result if isinstance(self.result, dict) else result
+        return dict(root_result.get("sequence_summary", result.get("sequence_summary", {})))
+
+    @staticmethod
+    def _current_trace_entry(trace: list[dict[str, Any]], timeline_index: int) -> dict[str, Any]:
+        for entry in trace:
+            if int(entry.get("timeline_index", -1)) == int(timeline_index):
+                return dict(entry)
+        return dict(trace[0]) if trace else {}
+
+    @staticmethod
+    def _modulation_order(modulation: str) -> int:
+        return {"QPSK": 2, "16QAM": 4, "64QAM": 6, "256QAM": 8}.get(str(modulation).upper(), 0)
+
+    @staticmethod
+    def _trace_table_text(trace: list[dict[str, Any]], columns: list[tuple[str, str]]) -> str:
+        if not trace:
+            return "No timeline entries are available."
+        header = " | ".join(label for label, _ in columns)
+        separator = " | ".join("---" for _ in columns)
+        rows = []
+        for entry in trace:
+            rows.append(" | ".join(str(entry.get(key, "n/a")) for _, key in columns))
+        return "\n".join([header, separator, *rows])
+
+    def _scheduler_harq_stage_models(self, result: dict[str, Any]) -> list[dict[str, Any]]:
+        summary = self._sequence_summary_for_active_result(result)
+        schedule_trace = [dict(entry) for entry in summary.get("schedule_trace", [])]
+        harq_trace = [dict(entry) for entry in summary.get("harq_trace", [])]
+        scheduler_active = bool(summary.get("scheduler_enabled", False))
+        harq_active = bool(summary.get("harq_enabled", False))
+        slot_context = result.get("slot_context", {})
+        timeline_index = int(slot_context.get("timeline_index", result.get("scheduled_grant", {}).get("timeline_index", 0)))
+        stages: list[dict[str, Any]] = []
+
+        current_grant = dict(result.get("scheduled_grant", {}) or self._current_trace_entry(schedule_trace, timeline_index))
+        if (scheduler_active or harq_active) and (schedule_trace or current_grant):
+            if not schedule_trace and current_grant:
+                schedule_trace = [current_grant]
+            x_axis = np.asarray([int(entry.get("timeline_index", index)) for index, entry in enumerate(schedule_trace)], dtype=float)
+            layers = np.asarray([int(entry.get("scheduled_layers", entry.get("num_layers", 1))) for entry in schedule_trace], dtype=float)
+            mod_orders = np.asarray(
+                [self._modulation_order(str(entry.get("scheduled_modulation", entry.get("modulation", "QPSK")))) for entry in schedule_trace],
+                dtype=float,
+            )
+            rv_values = np.asarray([int(entry.get("harq_redundancy_version", entry.get("rv", 0))) for entry in schedule_trace], dtype=float)
+            grant_table = self._trace_table_text(
+                schedule_trace,
+                [
+                    ("slot", "timeline_index"),
+                    ("grant", "grant_id"),
+                    ("ch", "channel_type"),
+                    ("mod", "scheduled_modulation"),
+                    ("layers", "scheduled_layers"),
+                    ("precoder", "scheduled_precoding_mode"),
+                    ("rv", "harq_redundancy_version"),
+                    ("ndi", "harq_ndi"),
+                ],
+            )
+            stages.append(
+                {
+                    "key": "scheduler_timeline",
+                    "section": "Control",
+                    "flow_label": "Grant",
+                    "title": "DCI-like Grant Timeline",
+                    "description": "Configured or synthesized scheduling grants are replayed across captured slots so the PHY can be inspected as a scheduled transmission sequence rather than isolated slots.",
+                    "metrics": {
+                        "Scheduler enabled": bool(summary.get("scheduler_enabled", current_grant.get("grant_source") == "configured")),
+                        "Current grant": current_grant.get("grant_id", "n/a"),
+                        "Current channel": current_grant.get("channel_type", "n/a"),
+                        "Current modulation": current_grant.get("scheduled_modulation", current_grant.get("modulation", "n/a")),
+                        "Current layers": current_grant.get("scheduled_layers", current_grant.get("num_layers", "n/a")),
+                        "Current RV": current_grant.get("harq_redundancy_version", current_grant.get("rv", "n/a")),
+                    },
+                    "artifacts": [
+                        {
+                            "name": "Current grant",
+                            "kind": "text",
+                            "payload": "\n".join(f"{key}: {value}" for key, value in current_grant.items()) or "No current grant.",
+                            "description": "Full grant fields for the selected slot.",
+                        },
+                        {
+                            "name": "Grant replay table",
+                            "kind": "text",
+                            "payload": grant_table,
+                            "description": "Compact table of scheduled grants across captured slots.",
+                        },
+                        {
+                            "name": "Grant timeline",
+                            "kind": "multi_line",
+                            "payload": {
+                                "x_label": "Timeline slot",
+                                "y_label": "Value",
+                                "series": [
+                                    {"x": x_axis, "y": layers, "color": "#38bdf8"},
+                                    {"x": x_axis, "y": mod_orders, "color": "#f59e0b"},
+                                    {"x": x_axis, "y": rv_values, "color": "#a78bfa"},
+                                ],
+                            },
+                            "description": "Layer count, modulation order in bits/symbol, and RV across the scheduled sequence.",
+                        },
+                    ],
+                }
+            )
+
+        if harq_trace:
+            x_axis = np.asarray([int(entry.get("timeline_index", index)) for index, entry in enumerate(harq_trace)], dtype=float)
+            rv_values = np.asarray([int(entry.get("rv", 0)) for entry in harq_trace], dtype=float)
+            ack_values = np.asarray([1.0 if bool(entry.get("ack", False)) else 0.0 for entry in harq_trace], dtype=float)
+            observations = np.asarray([int(entry.get("soft_observations", 1)) for entry in harq_trace], dtype=float)
+            energy = np.asarray([float(entry.get("combined_llr_energy", 0.0)) for entry in harq_trace], dtype=float)
+            current_harq = self._current_trace_entry(harq_trace, timeline_index)
+            harq_table = self._trace_table_text(
+                harq_trace,
+                [
+                    ("slot", "timeline_index"),
+                    ("pid", "process_id"),
+                    ("rv", "rv"),
+                    ("ndi", "ndi"),
+                    ("new", "new_data"),
+                    ("obs", "soft_observations"),
+                    ("ack", "ack"),
+                ],
+            )
+            stages.append(
+                {
+                    "key": "harq_timeline",
+                    "section": "Control",
+                    "flow_label": "HARQ",
+                    "title": "HARQ Process Timeline",
+                    "description": "HARQ process state, RV cycling, ACK/NACK, and soft-buffer accumulation are shown across captured slots.",
+                    "metrics": {
+                        "HARQ enabled": bool(summary.get("harq_enabled", True)),
+                        "Current process": current_harq.get("process_id", "n/a"),
+                        "Current RV": current_harq.get("rv", "n/a"),
+                        "Current ACK": current_harq.get("ack", "n/a"),
+                        "Soft observations": current_harq.get("soft_observations", "n/a"),
+                        "ACK count": summary.get("harq_ack_count", int(np.sum(ack_values))),
+                        "NACK count": summary.get("harq_nack_count", int(ack_values.size - np.sum(ack_values))),
+                    },
+                    "artifacts": [
+                        {
+                            "name": "HARQ table",
+                            "kind": "text",
+                            "payload": harq_table,
+                            "description": "Per-slot HARQ process summary.",
+                        },
+                        {
+                            "name": "RV / ACK / soft observations",
+                            "kind": "multi_line",
+                            "payload": {
+                                "x_label": "Timeline slot",
+                                "y_label": "Value",
+                                "series": [
+                                    {"x": x_axis, "y": rv_values, "color": "#a78bfa"},
+                                    {"x": x_axis, "y": ack_values, "color": "#34d399"},
+                                    {"x": x_axis, "y": observations, "color": "#f59e0b"},
+                                ],
+                            },
+                            "description": "RV sequence, ACK/NACK decisions, and number of accumulated soft observations.",
+                        },
+                        {
+                            "name": "Soft-buffer energy",
+                            "kind": "line",
+                            "payload": {
+                                "x": x_axis,
+                                "y": energy,
+                                "x_label": "Timeline slot",
+                                "y_label": "Mean |combined LLR|",
+                            },
+                            "description": "Mean absolute value of the combined soft-buffer LLRs after each HARQ attempt.",
+                        },
+                    ],
+                }
+            )
+
+        return stages
 
     def _pipeline_contract_stages(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         slot_context = result.get("slot_context", {})

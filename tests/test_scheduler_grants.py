@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from copy import deepcopy
 from pathlib import Path
 
@@ -33,3 +34,26 @@ def test_scheduler_grant_is_exposed_in_each_slot_pipeline() -> None:
         slot_result = history_entry["result"]
         assert slot_result["scheduled_grant"]["grant_source"] == "configured"
         assert slot_result["pipeline"][0]["stage"] == "DCI-like scheduling grant"
+
+
+def test_phy_pipeline_panel_shows_scheduler_timeline_stage() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("PYQTGRAPH_QT_LIB", "PyQt5")
+
+    try:
+        from PyQt5.QtWidgets import QApplication
+    except ImportError:  # pragma: no cover
+        return
+
+    from gui.phy_pipeline import PhyPipelinePanel
+
+    app = QApplication.instance() or QApplication([])
+    panel = PhyPipelinePanel()
+    panel.set_result(simulate_link_sequence(_scheduler_config()))
+
+    stage_keys = {stage["key"] for stage in panel.stages}
+    assert "scheduler_timeline" in stage_keys
+    scheduler_stage = next(stage for stage in panel.stages if stage["key"] == "scheduler_timeline")
+    assert scheduler_stage["metrics"]["Current grant"] in {100, 101}
+    panel.deleteLater()
+    app.processEvents()

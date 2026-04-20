@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from copy import deepcopy
 from pathlib import Path
 
@@ -79,3 +80,26 @@ def test_harq_sequence_keeps_schedule_trace_in_sync() -> None:
 
     assert [entry["harq_process_id"] for entry in schedule_trace] == [0, 0, 0, 0]
     assert [entry["harq_redundancy_version"] for entry in schedule_trace] == [0, 2, 3, 1]
+
+
+def test_phy_pipeline_panel_shows_harq_timeline_stage() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("PYQTGRAPH_QT_LIB", "PyQt5")
+
+    try:
+        from PyQt5.QtWidgets import QApplication
+    except ImportError:  # pragma: no cover
+        return
+
+    from gui.phy_pipeline import PhyPipelinePanel
+
+    app = QApplication.instance() or QApplication([])
+    panel = PhyPipelinePanel()
+    panel.set_result(simulate_link_sequence(_harq_config()))
+
+    stage_keys = {stage["key"] for stage in panel.stages}
+    assert "harq_timeline" in stage_keys
+    harq_stage = next(stage for stage in panel.stages if stage["key"] == "harq_timeline")
+    assert harq_stage["metrics"]["Soft observations"] == 1
+    panel.deleteLater()
+    app.processEvents()
