@@ -193,7 +193,11 @@ Current TX/RX/channel paths are single-stream abstractions.
 
 ## P3. HARQ and Minimal MAC Coupling
 
+**Status:** complete at baseline level. The implementation is intentionally a link-level teaching/research model, not a full MAC scheduler or conformance-grade HARQ procedure.
+
 ### P3-1 HARQ process manager
+
+**Status:** done.
 
 **Work**
 
@@ -208,6 +212,8 @@ Current TX/RX/channel paths are single-stream abstractions.
 
 ### P3-2 DCI-like scheduling abstraction
 
+**Status:** done.
+
 **Work**
 
 - define a minimal scheduler-facing interface for DL/UL grants
@@ -216,6 +222,21 @@ Current TX/RX/channel paths are single-stream abstractions.
 **Acceptance**
 
 - PHY runs can replay a sequence of scheduled transmissions rather than isolated slots only
+
+### P3-3 Coupled scheduler/HARQ replay
+
+**Status:** done.
+
+**Work**
+
+- let DCI-like grants select `harq_process_id`, `NDI`, and `RV`
+- expose scheduler and HARQ traces in the GUI `PHY Pipeline`
+- add a coupled scenario for scheduler-driven retransmission observation
+
+**Acceptance**
+
+- configured grant sequences can drive HARQ process selection and retransmission RVs
+- GUI shows both the grant timeline and HARQ process timeline
 
 ## P4. MU-MIMO and Massive MIMO
 

@@ -1,0 +1,84 @@
+simulation:
+  capture_slots: 4
+
+link:
+  channel_type: data
+
+csi:
+  enabled: false
+  replay_feedback: false
+
+harq:
+  enabled: true
+  process_count: 2
+  max_retransmissions: 3
+  rv_sequence: [0, 2, 3, 1]
+  soft_combining: true
+
+scheduler:
+  enabled: true
+  repeat_grants: true
+  grants:
+    - grant_id: 300
+      channel_type: data
+      harq_process_id: 0
+      ndi: 1
+      rv: 0
+      modulation: QPSK
+      target_rate: 0.45
+      num_codewords: 1
+      num_layers: 1
+      num_ports: 1
+      num_tx_antennas: 1
+      num_rx_antennas: 1
+      precoding_mode: identity
+    - grant_id: 301
+      channel_type: data
+      harq_process_id: 0
+      ndi: 1
+      rv: 2
+      modulation: QPSK
+      target_rate: 0.45
+      num_codewords: 1
+      num_layers: 1
+      num_ports: 1
+      num_tx_antennas: 1
+      num_rx_antennas: 1
+      precoding_mode: identity
+    - grant_id: 302
+      channel_type: data
+      harq_process_id: 1
+      ndi: 1
+      rv: 0
+      modulation: QPSK
+      target_rate: 0.45
+      num_codewords: 1
+      num_layers: 1
+      num_ports: 1
+      num_tx_antennas: 1
+      num_rx_antennas: 1
+      precoding_mode: identity
+    - grant_id: 303
+      channel_type: data
+      harq_process_id: 1
+      ndi: 1
+      rv: 2
+      modulation: QPSK
+      target_rate: 0.45
+      num_codewords: 1
+      num_layers: 1
+      num_ports: 1
+      num_tx_antennas: 1
+      num_rx_antennas: 1
+      precoding_mode: identity
+
+transport_block:
+  size_bits: 256
+
+channel:
+  model: awgn
+  snr_db: -20.0
+
+receiver:
+  perfect_sync: true
+  perfect_channel_estimation: true

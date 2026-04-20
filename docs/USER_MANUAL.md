@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This manual explains how to install, run, and operate the project as of the `v2.0.0` baseline.
+This manual explains how to install, run, and operate the project as of the current `main` branch.
 
 The current scope is:
 
@@ -11,9 +11,10 @@ The current scope is:
 - standard-faithful SISO baseline
 - SU-MIMO baseline up to `2x2` and `4x4`
 - CSI feedback baseline with `CQI / PMI / RI`
+- `P3` HARQ and DCI-like scheduler baseline
 - end-to-end file transfer over the PHY chain
 
-The current scope does **not** include full `HARQ`, `MU-MIMO`, `Massive MIMO`, `beam management`, or `FR2 hybrid beamforming`. Those belong to later phases in the V2 roadmap.
+The current scope does **not** include conformance-grade MAC `HARQ`, `MU-MIMO`, `Massive MIMO`, full beam management, or `FR2` hybrid beamforming. Those belong to later phases in the V2 roadmap.
 
 ## 2. System Overview
 
@@ -177,8 +178,8 @@ If the virtual environment has `build` installed:
 
 Expected outputs:
 
-- `dist/fivegnr_phy_stl-2.0.0.tar.gz`
-- `dist/fivegnr_phy_stl-2.0.0-py3-none-any.whl`
+- `dist/fivegnr_phy_stl-2.2.0.tar.gz`
+- `dist/fivegnr_phy_stl-2.2.0-py3-none-any.whl`
 
 ## 6. Running the Project
 
@@ -243,6 +244,24 @@ python main.py --config configs/default.yaml --override configs/scenario_su_mimo
 
 ```powershell
 python main.py --config configs/default.yaml --override configs/scenario_su_mimo_two_codeword.yaml --gui
+```
+
+#### P3 HARQ Baseline
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_harq_baseline.yaml --gui
+```
+
+#### P3 DCI-like Scheduler Replay
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_scheduler_grant_replay.yaml --gui
+```
+
+#### P3 Coupled HARQ + Scheduler Loop
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_p3_harq_scheduler_loop.yaml --gui
 ```
 
 ## 7. GUI Operating Guide
@@ -519,8 +538,8 @@ The project is still a software-only PHY simulator, not a conformance-grade 3GPP
 
 Current major limits:
 
-- no full HARQ process management
-- no minimal MAC grant scheduler yet
+- HARQ is a baseline process/soft-combining model, not a full 3GPP MAC HARQ implementation
+- scheduler support is DCI-like grant replay, not a full dynamic MAC scheduler
 - no MU-MIMO
 - no Massive MIMO
 - no FR2 hybrid beamforming

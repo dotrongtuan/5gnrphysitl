@@ -71,6 +71,10 @@ def validate_config(config: dict) -> dict:
             raise ValueError("Each scheduler grant must be a mapping.")
         if "rv" in grant and (int(grant["rv"]) < 0 or int(grant["rv"]) > 3):
             raise ValueError("scheduler grant rv values must be in [0, 3].")
+        if "ndi" in grant and int(grant["ndi"]) not in {0, 1}:
+            raise ValueError("scheduler grant ndi must be 0 or 1.")
+        if "harq_process_id" in grant and int(grant["harq_process_id"]) < 0:
+            raise ValueError("scheduler grant harq_process_id must be non-negative.")
         if "num_codewords" in grant and int(grant["num_codewords"]) < 1:
             raise ValueError("scheduler grant num_codewords must be at least 1.")
         if "num_layers" in grant and int(grant["num_layers"]) < 1:

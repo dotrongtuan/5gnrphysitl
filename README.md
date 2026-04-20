@@ -1556,6 +1556,24 @@ Ready-made `P2` two-codeword SU-MIMO scenario:
 python main.py --config configs/default.yaml --override configs/scenario_su_mimo_two_codeword.yaml --gui
 ```
 
+Ready-made `P3` HARQ baseline scenario:
+
+```bash
+python main.py --config configs/default.yaml --override configs/scenario_harq_baseline.yaml --gui
+```
+
+Ready-made `P3` DCI-like scheduler replay scenario:
+
+```bash
+python main.py --config configs/default.yaml --override configs/scenario_scheduler_grant_replay.yaml --gui
+```
+
+Ready-made `P3` coupled HARQ + scheduler loop scenario:
+
+```bash
+python main.py --config configs/default.yaml --override configs/scenario_p3_harq_scheduler_loop.yaml --gui
+```
+
 Current scope of the implemented `P2` baseline:
 
 - `1-2 codewords`
@@ -1693,7 +1711,8 @@ python main.py --config configs/default.yaml --override configs/scenario_vehicul
 
 - Data-channel coding is LDPC-inspired, not standards-compliant QC-LDPC.
 - Control-channel coding is polar-like and small-block focused, not full NR polar coding.
-- Resource allocation is slot-local and simplified; there is no full scheduler/DCI implementation.
+- Resource allocation is slot-local and simplified; `P3` adds DCI-like grant replay, but not a full dynamic MAC scheduler.
+- HARQ is implemented as a baseline process/NDI/RV/soft-combining loop, not a conformance-grade MAC HARQ implementation.
 - Uplink support currently covers a `data` / `PUSCH-style` baseline, a minimal `control` / `PUCCH-style` baseline, and a `PRACH` preamble-detection baseline.
 - `PBCH` is a baseline SSB/PBCH broadcast path, not a full `38.211` synchronization-burst implementation.
 - `CSI-RS`, `SRS`, and `PT-RS` are baseline observability/reference-signal features, not full `38.211/38.214` procedure implementations.
@@ -1727,7 +1746,7 @@ python main.py --config configs/default.yaml --override configs/scenario_vehicul
 - Multi-numerology refinement
 - Improved synchronization and CE algorithms
 - Stronger impairment realism
-- More flexible scheduler/resource mapping
+- More flexible dynamic scheduler/resource mapping beyond grant replay
 - Higher test coverage
 - Expansion toward uplink and access procedures
 
@@ -1735,7 +1754,7 @@ python main.py --config configs/default.yaml --override configs/scenario_vehicul
 
 - Replace the data coder with a proper QC-LDPC base graph implementation.
 - Add realistic CORESET/PDCCH search space abstractions.
-- Add HARQ combining and redundancy versions.
+- Extend HARQ with latency, ACK timing, and multi-user process scheduling.
 - Extend KPI reporting with BLER confidence intervals and latency.
 - Add SSB/PBCH acquisition and synchronization experiments.
 

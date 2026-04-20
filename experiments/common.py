@@ -1505,6 +1505,9 @@ def simulate_link_sequence(
                 payload_bits=payload_bits,
                 payload_size_bits=_payload_size_bits_for_channel(slot_config, scheduled_channel_type),
                 rng=payload_rng,
+                harq_process_id=int(grant_spec["harq_process_id"]) if "harq_process_id" in grant_spec else None,
+                grant_ndi=int(grant_spec["ndi"]) if "ndi" in grant_spec else None,
+                grant_rv=int(grant_spec["rv"]) if "rv" in grant_spec else None,
             )
             slot_config = deepcopy(sequence_config)
             if grant_spec:

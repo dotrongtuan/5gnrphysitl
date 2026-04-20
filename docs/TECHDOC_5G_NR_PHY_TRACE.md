@@ -30,8 +30,8 @@ Tai lieu nay chi tap trung vao:
 
 Tai lieu khong di sau vao:
 
-- MAC scheduler day du
-- HARQ protocol loop
+- MAC scheduler day du/conformance-grade
+- HARQ protocol loop day du o tang MAC
 - RLC/PDCP/RRC/NAS
 - 5G Core
 - beam management/MIMO codebook chi tiet
@@ -78,7 +78,8 @@ Trong 5G thuc te:
 Trong du an nay:
 
 - MAC day du khong ton tai
-- mot phan scheduler-like logic duoc "nhung" trong `frame_structure` va `resource_grid`
+- co `P3` DCI-like grant replay va HARQ baseline duoc ghep vao link-level orchestration
+- mot phan scheduler-like logic van duoc "nhung" trong `frame_structure` va `resource_grid`
 - trong tam la **PHY waveform chain**
 
 ## 4. Tong quan chuoi PHY trong du an
@@ -304,8 +305,8 @@ Logic:
 
 ### Diem chua du
 
-- chua co HARQ loop
-- chua co real puncturing/shortening pattern nhu 3GPP
+- co HARQ loop baseline cho P3: process state, NDI, RV va rate-recovered LLR soft combining
+- chua co real puncturing/shortening pattern bit-true nhu 3GPP
 
 ## 6.5. Scrambling
 
@@ -868,11 +869,11 @@ flowchart TD
 1. `LDPC-inspired` khong phai QC-LDPC
 2. `polar-like` khong phai NR polar coding day du
 3. rate matching chi giu y tuong circular buffer
-4. khong co HARQ
-5. khong co layer mapping / precoding / beamforming
-6. khong co CSI-RS / PT-RS / SRS
+4. HARQ moi o muc baseline, chua phai MAC HARQ conformance-grade
+5. layer mapping / precoding / beamforming moi o muc SU-MIMO baseline
+6. CSI-RS / PT-RS / SRS moi o muc observability/reference-signal baseline
 7. frame timing chua fully numerology-dependent
-8. khong co SSB/PBCH initial access day du
+8. SSB/PBCH initial access moi o muc baseline, chua day du procedure
 
 ## 13. Cach doc GUI `PHY Pipeline` nhu mot ky su PHY
 

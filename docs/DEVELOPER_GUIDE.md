@@ -26,7 +26,8 @@ Current maturity:
 - `P0`: complete
 - `P1`: complete
 - `P2`: complete at baseline level
-- `P3+`: roadmap work
+- `P3`: complete at baseline level
+- `P4+`: roadmap work
 
 Current implemented scope includes:
 
@@ -41,6 +42,13 @@ Current implemented scope includes:
   - `identity`, `dft`, and `type1_sp` precoding baseline
   - `ZF`, `MMSE`, `OSIC`
   - `CQI / PMI / RI` CSI loop baseline
+- `P3` HARQ / scheduler baseline with:
+  - HARQ process state
+  - NDI tracking
+  - RV sequencing
+  - rate-recovered LLR soft combining
+  - DCI-like grant replay
+  - scheduler-driven `harq_process_id`, `NDI`, `RV`, MCS, layer, and precoder selection
 
 ## 3. Architectural References
 
@@ -422,10 +430,10 @@ Developer rule:
 
 ## 16. Known Design Constraints
 
-Even at `v2.0.0`, the simulator still has intentional limits:
+Even after the `P3` baseline, the simulator still has intentional limits:
 
-- no HARQ process manager yet
-- no scheduler / DCI-like MAC coupling yet
+- HARQ is a teaching/research baseline, not a full 3GPP MAC HARQ implementation
+- the scheduler is grant-replay based, not a dynamic QoS/BSR/CQI-driven MAC scheduler
 - no MU-MIMO
 - no Massive MIMO
 - no FR2 hybrid beamforming
@@ -434,18 +442,18 @@ This matters because contributors should not accidentally describe the repo as f
 
 ## 17. Recommended Next Work
 
-After `P2`, the next correct development target is `P3`.
+After `P3`, the next correct development target is `P4`.
 
 Priority order:
 
-1. HARQ process manager
-2. RV sequencing
-3. soft combining buffer
-4. DCI-like scheduling abstraction
+1. MU-MIMO user model
+2. user grouping and per-user grants
+3. interference-aware precoding
+4. CSI-RS/SRS-driven multi-user channel observations
+5. HARQ process scheduling across users
 
 Only after that should the repo move into:
 
-- MU-MIMO
 - Massive MIMO
 - FR2 / hybrid beamforming
 

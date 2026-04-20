@@ -35,13 +35,21 @@ class HarqProcessState:
     def redundancy_version(self) -> int:
         return int(self.rv_sequence[self.rv_index % len(self.rv_sequence)])
 
-    def start_new_data(self, payload_bits: np.ndarray) -> None:
+    def start_new_data(self, payload_bits: np.ndarray, *, ndi: int | None = None) -> None:
         self.payload_bits = np.asarray(payload_bits, dtype=np.uint8).copy()
-        self.ndi = 1 - int(self.ndi)
+        self.ndi = int(ndi) & 1 if ndi is not None else 1 - int(self.ndi)
         self.attempt_index = 0
         self.rv_index = 0
         self.soft_buffers = ()
         self.last_ack = None
+
+    def set_redundancy_version(self, rv: int) -> None:
+        rv = int(rv)
+        if rv in self.rv_sequence:
+            self.rv_index = self.rv_sequence.index(rv)
+            return
+        self.rv_sequence = (rv, *tuple(value for value in self.rv_sequence if value != rv))
+        self.rv_index = 0
 
     def combine(self, rate_recovered_by_codeword: tuple[np.ndarray, ...], *, soft_combining: bool) -> tuple[np.ndarray, ...]:
         current = tuple(np.asarray(block, dtype=np.float64).copy() for block in rate_recovered_by_codeword)
@@ -97,7 +105,9 @@ class HarqProcessManager:
             for index in range(self.process_count)
         )
 
-    def process_for_slot(self, timeline_index: int) -> HarqProcessState:
+    def process_for_slot(self, timeline_index: int, harq_process_id: int | None = None) -> HarqProcessState:
+        if harq_process_id is not None:
+            return self.processes[int(harq_process_id) % self.process_count]
         return self.processes[int(timeline_index) % self.process_count]
 
     def prepare_payload(
@@ -107,8 +117,11 @@ class HarqProcessManager:
         payload_bits: np.ndarray | None,
         payload_size_bits: int,
         rng: np.random.Generator,
+        harq_process_id: int | None = None,
+        grant_ndi: int | None = None,
+        grant_rv: int | None = None,
     ) -> tuple[HarqProcessState, np.ndarray, dict[str, object]]:
-        process = self.process_for_slot(timeline_index)
+        process = self.process_for_slot(timeline_index, harq_process_id=harq_process_id)
         if not self.enabled:
             if payload_bits is not None:
                 payload = np.asarray(payload_bits, dtype=np.uint8).copy()
@@ -121,16 +134,24 @@ class HarqProcessManager:
                 "rv": 0,
                 "ndi": int(process.ndi),
                 "new_data": True,
+                "grant_controlled": bool(harq_process_id is not None or grant_ndi is not None or grant_rv is not None),
             }
 
-        new_data = not process.active
+        desired_ndi = int(grant_ndi) & 1 if grant_ndi is not None else None
+        ndi_toggled = bool(process.active and desired_ndi is not None and desired_ndi != int(process.ndi))
+        new_data = bool(not process.active or ndi_toggled)
         if new_data:
             payload = (
                 np.asarray(payload_bits, dtype=np.uint8).copy()
                 if payload_bits is not None
                 else rng.integers(0, 2, int(payload_size_bits), dtype=np.uint8)
             )
-            process.start_new_data(payload)
+            process.start_new_data(payload, ndi=desired_ndi)
+        elif desired_ndi is not None:
+            process.ndi = desired_ndi
+
+        if grant_rv is not None:
+            process.set_redundancy_version(int(grant_rv))
 
         assert process.payload_bits is not None
         return process, process.payload_bits.copy(), {
@@ -141,4 +162,5 @@ class HarqProcessManager:
             "ndi": int(process.ndi),
             "new_data": bool(new_data),
             "soft_combining": bool(self.soft_combining),
+            "grant_controlled": bool(harq_process_id is not None or grant_ndi is not None or grant_rv is not None),
         }

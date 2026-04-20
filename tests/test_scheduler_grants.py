@@ -16,6 +16,13 @@ def _scheduler_config() -> dict:
     return validate_config(deep_merge(deepcopy(base), override))
 
 
+def _scheduler_harq_config() -> dict:
+    root = Path(__file__).resolve().parents[1]
+    base = load_yaml(root / "configs" / "default.yaml")
+    override = load_yaml(root / "configs" / "scenario_p3_harq_scheduler_loop.yaml")
+    return validate_config(deep_merge(deepcopy(base), override))
+
+
 def test_scheduler_replays_configured_grant_sequence() -> None:
     result = simulate_link_sequence(_scheduler_config())
     schedule = result["sequence_summary"]["schedule_trace"]
@@ -34,6 +41,23 @@ def test_scheduler_grant_is_exposed_in_each_slot_pipeline() -> None:
         slot_result = history_entry["result"]
         assert slot_result["scheduled_grant"]["grant_source"] == "configured"
         assert slot_result["pipeline"][0]["stage"] == "DCI-like scheduling grant"
+
+
+def test_scheduler_grants_drive_harq_process_ndi_and_rv() -> None:
+    result = simulate_link_sequence(_scheduler_harq_config())
+    summary = result["sequence_summary"]
+    schedule = summary["schedule_trace"]
+    harq = summary["harq_trace"]
+
+    assert summary["scheduler_enabled"] is True
+    assert summary["harq_enabled"] is True
+    assert [entry["harq_process_id"] for entry in schedule] == [0, 0, 1, 1]
+    assert [entry["harq_redundancy_version"] for entry in schedule] == [0, 2, 0, 2]
+    assert [entry["process_id"] for entry in harq] == [0, 0, 1, 1]
+    assert [entry["rv"] for entry in harq] == [0, 2, 0, 2]
+    assert [entry["ndi"] for entry in harq] == [1, 1, 1, 1]
+    assert [entry["new_data"] for entry in harq] == [True, False, True, False]
+    assert [entry["soft_observations"] for entry in harq] == [1, 2, 1, 2]
 
 
 def test_phy_pipeline_panel_shows_scheduler_timeline_stage() -> None:

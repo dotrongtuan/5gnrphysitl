@@ -1,0 +1,27 @@
+simulation:
+  capture_slots: 4
+
+link:
+  channel_type: data
+
+harq:
+  enabled: true
+  process_count: 1
+  max_retransmissions: 3
+  rv_sequence: [0, 2, 3, 1]
+  soft_combining: true
+
+csi:
+  enabled: false
+  replay_feedback: false
+
+transport_block:
+  size_bits: 512
+
+channel:
+  model: awgn
+  snr_db: 2.0
+
+receiver:
+  perfect_sync: true
+  perfect_channel_estimation: true

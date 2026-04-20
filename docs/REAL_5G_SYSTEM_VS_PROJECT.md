@@ -9,7 +9,7 @@ Ket luan ngan gon:
 - 5G thuc te la mot **he thong dau-cuoi** gom UE, RAN, transport, 5G Core, application domain, OSS/BSS, orchestration, bao mat, quan ly QoS, mobility, slicing va van hanh mang.
 - Du an hien tai la mot **downlink-oriented PHY workbench** theo huong `3GPP-inspired`, software-only, phu hop cho nghien cuu, giang day, va prototyping link-level.
 - Du an da lam tot cac khoi cot loi cua PHY: OFDM, resource grid, DMRS, AWGN/fading/impairments, equalization, demapping, KPI, GUI stage-by-stage.
-- Du an **chua** la he thong 5G day du va chua phai PHY conformance-grade: thieu phan MAC/RLC/PDCP/RRC/NAS/5GC, thieu scheduler, HARQ, MIMO/beamforming, uplink hoan chinh, initial access day du, va coding chua dung 3GPP bit-true.
+- Du an **chua** la he thong 5G day du va chua phai PHY conformance-grade: thieu phan MAC/RLC/PDCP/RRC/NAS/5GC, thieu scheduler/HARQ dong o muc MAC day du, thieu MU-MIMO/Massive-MIMO/beam management, uplink hoan chinh, initial access day du, va coding chua dung 3GPP bit-true.
 - Ve gia tri hoc thuat, du an nay rat manh o vai tro **teaching/research platform**; ve muc do sat he thong 5G thuong mai, no nen duoc xem la **mot mo hinh PHY pilot/co so** thay vi mot stack NR day du.
 
 ## 1. Pham vi va phuong phap doi chieu
@@ -308,7 +308,7 @@ Nhan xet:
 | Data coding | 3GPP QC-LDPC + segmentation + CRC + lifting | `LDPC-inspired` repetition/interleaving/circular rate match | Dung luong xu ly, khong dung chi tiet 3GPP |
 | Control coding | Polar + CRC + rate matching + interleaving | `polar-like` SC decode, CRC8 | Dung tinh than, chua sat chuan |
 | CRC | CRC24/16/11/6 tuy procedure | `crc16`, `crc8` | Simplified |
-| Redundancy version | Co trong NR/HARQ | Co metadata `rv`, nhung chua co HARQ thuc su | Scaffold |
+| Redundancy version | Co trong NR/HARQ | Co `rv` trong coding metadata va P3 HARQ baseline | Teaching-level |
 | MCS | Bang chuan 3GPP | Anchor table ngn | Teaching-level |
 
 Day la mot trong cac khoang cach lon nhat giua du an va NR conformance-grade.
@@ -335,7 +335,7 @@ Day la mot trong cac khoang cach lon nhat giua du an va NR conformance-grade.
 
 | Hang muc | 5G thuc te | Du an hien tai | Nhan xet |
 | --- | --- | --- | --- |
-| Multi-layer MIMO | Co | Chua, single-layer | Thieu lon |
+| Multi-layer MIMO | Co | Co SU-MIMO baseline | Chua co MU/Massive MIMO |
 | Precoding / beamforming | Co | Khong | Thieu rat lon |
 | CSI feedback / CSI-RS | Co | Khong | Thieu |
 | Massive MIMO / hybrid beamforming | Pho bien trong 5G thuc te | Khong | Ngoai pham vi hien tai |
@@ -346,10 +346,10 @@ Neu nhin tu goc do deployment 5G thuong mai, day la khoang cach quan trong nhat 
 
 | Hang muc | 5G thuc te | Du an hien tai | Nhan xet |
 | --- | --- | --- | --- |
-| Scheduler | Dong, phuc tap, phu thuoc CQI/PMI/RI/BSR/QoS | Khong co scheduler day du | Thieu rat lon |
-| HARQ | Core co che reliability va latency | Khong | Thieu rat lon |
-| DCI / CORESET / SearchSpace | Co | Control region don gian hoa | Chi co scaffold |
-| Grant-based uplink/downlink interaction | Co | Khong | Thieu |
+| Scheduler | Dong, phuc tap, phu thuoc CQI/PMI/RI/BSR/QoS | Co DCI-like grant replay baseline | Chua phai MAC scheduler dong |
+| HARQ | Core co che reliability va latency | Co process state, NDI, RV, soft combining baseline | Chua phai MAC HARQ day du |
+| DCI / CORESET / SearchSpace | Co | Control region don gian hoa + grant metadata | Baseline |
+| Grant-based uplink/downlink interaction | Co | Co downlink/uplink-style grant replay baseline | Con don gian |
 
 Day la ly do vi sao du an nay nen duoc goi la **PHY simulator**, khong nen goi la **NR stack**.
 
@@ -436,10 +436,10 @@ Day la cau truc dung neu muc tieu la mo rong dan tu teaching prototype thanh lab
 Danh sach duoi day la cac khoang cach quan trong nhat:
 
 1. **Khong co uplink thuc su**
-2. **Khong co HARQ**
-3. **Khong co MIMO/beamforming**
+2. **HARQ moi o muc baseline, chua phai MAC HARQ day du**
+3. **MIMO/beamforming moi o muc SU-MIMO baseline**
 4. **Khong co initial access day du SSB/PBCH/PRACH**
-5. **Khong co scheduler, DCI, CORESET, search space dung nghia**
+5. **Scheduler, DCI, CORESET, search space moi o muc baseline**
 6. **Khong co protocol stack MAC/RLC/PDCP/RRC/NAS**
 7. **Khong co 5GC**
 8. **Khong co measurement/mobility/handover**
@@ -465,16 +465,16 @@ Can uu tien:
 - dung frame timing theo `mu`
 - PDCCH/CORESET/SearchSpace tot hon
 - SSB/PBCH basic acquisition
-- HARQ va RV combining
+- HARQ va RV combining nang cao hon baseline hien co
 
 ### 9.2. Muc 2: Tu standard-faithful PHY sang MAC-coupled simulator
 
 Can them:
 
-- scheduler
-- DCI/grant logic
+- scheduler dong thay vi grant replay
+- DCI/grant logic chi tiet hon
 - CQI/PMI/RI feedback abstraction
-- retransmission loop
+- retransmission loop gan hon MAC HARQ thuc te
 - uplink channels
 
 ### 9.3. Muc 3: Tu MAC-coupled simulator sang system simulator
@@ -568,15 +568,15 @@ Neu dung hai cau:
 | --- | --- | --- |
 | UE/RAN/Core | Co | Khong, chi PHY simulator |
 | Downlink PHY | Co | Co |
-| Uplink PHY | Co | Chua |
+| Uplink PHY | Co | Baseline |
 | OFDM numerology | Co | Co, mot phan |
 | Resource grid | Co | Co |
 | DMRS | Co | Co, simplified |
-| CSI-RS / PT-RS / SRS | Co | Chua |
+| CSI-RS / PT-RS / SRS | Co | Baseline |
 | LDPC / Polar chuan | Co | Chua, chi inspired |
-| HARQ | Co | Chua |
-| MIMO / beamforming | Co | Chua |
-| Scheduler / DCI / CORESET | Co | Scaffold don gian |
+| HARQ | Co | Baseline P3 |
+| MIMO / beamforming | Co | SU-MIMO baseline |
+| Scheduler / DCI / CORESET | Co | DCI-like grant replay + scaffold don gian |
 | Core network | Co | Chua |
 | GUI introspection | Thuong khong lo ra ngoai | Co, rat manh |
 | Batch teaching experiments | Khong phai chuc nang deployment | Co |

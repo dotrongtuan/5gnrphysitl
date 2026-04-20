@@ -130,8 +130,9 @@ Ket luan ngan gon:
 \item
   Du an \textbf{chua} la he thong 5G day du va chua phai PHY
   conformance-grade: thieu phan MAC/RLC/PDCP/RRC/NAS/5GC, thieu
-  scheduler, HARQ, MIMO/beamforming, uplink hoan chinh, initial access
-  day du, va coding chua dung 3GPP bit-true.
+  scheduler/HARQ dong o muc MAC day du, thieu MU-MIMO/Massive-MIMO/beam
+  management, uplink hoan chinh, initial access day du, va coding chua
+  dung 3GPP bit-true.
 \item
   Ve gia tri hoc thuat, du an nay rat manh o vai tro
   \textbf{teaching/research platform}; ve muc do sat he thong 5G thuong
@@ -743,8 +744,8 @@ Control coding & Polar + CRC + rate matching + interleaving &
 \texttt{polar-like} SC decode, CRC8 & Dung tinh than, chua sat chuan \\
 CRC & CRC24/16/11/6 tuy procedure & \texttt{crc16}, \texttt{crc8} &
 Simplified \\
-Redundancy version & Co trong NR/HARQ & Co metadata \texttt{rv}, nhung
-chua co HARQ thuc su & Scaffold \\
+Redundancy version & Co trong NR/HARQ & Co \texttt{rv} trong coding
+metadata va P3 HARQ baseline & Teaching-level \\
 MCS & Bang chuan 3GPP & Anchor table ngn & Teaching-level \\
 \end{longtable}
 }
@@ -839,7 +840,7 @@ Nhan xet
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-Multi-layer MIMO & Co & Chua, single-layer & Thieu lon \\
+Multi-layer MIMO & Co & Co SU-MIMO baseline & Chua co MU/Massive MIMO \\
 Precoding / beamforming & Co & Khong & Thieu rat lon \\
 CSI feedback / CSI-RS & Co & Khong & Thieu \\
 Massive MIMO / hybrid beamforming & Pho bien trong 5G thuc te & Khong &
@@ -873,12 +874,14 @@ Nhan xet
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-Scheduler & Dong, phuc tap, phu thuoc CQI/PMI/RI/BSR/QoS & Khong co
-scheduler day du & Thieu rat lon \\
-HARQ & Core co che reliability va latency & Khong & Thieu rat lon \\
-DCI / CORESET / SearchSpace & Co & Control region don gian hoa & Chi co
-scaffold \\
-Grant-based uplink/downlink interaction & Co & Khong & Thieu \\
+Scheduler & Dong, phuc tap, phu thuoc CQI/PMI/RI/BSR/QoS & Co
+DCI-like grant replay baseline & Chua phai MAC scheduler dong \\
+HARQ & Core co che reliability va latency & Co process state, NDI, RV,
+soft combining baseline & Chua phai MAC HARQ day du \\
+DCI / CORESET / SearchSpace & Co & Control region don gian hoa + grant
+metadata & Baseline \\
+Grant-based uplink/downlink interaction & Co & Co downlink/uplink-style
+grant replay baseline & Con don gian \\
 \end{longtable}
 }
 
@@ -1077,13 +1080,13 @@ Danh sach duoi day la cac khoang cach quan trong nhat:
 \item
   \textbf{Khong co uplink thuc su}
 \item
-  \textbf{Khong co HARQ}
+  \textbf{HARQ moi o muc baseline, chua phai MAC HARQ day du}
 \item
-  \textbf{Khong co MIMO/beamforming}
+  \textbf{MIMO/beamforming moi o muc SU-MIMO baseline}
 \item
   \textbf{Khong co initial access day du SSB/PBCH/PRACH}
 \item
-  \textbf{Khong co scheduler, DCI, CORESET, search space dung nghia}
+  \textbf{Scheduler, DCI, CORESET, search space moi o muc baseline}
 \item
   \textbf{Khong co protocol stack MAC/RLC/PDCP/RRC/NAS}
 \item
@@ -1129,7 +1132,7 @@ Can uu tien:
 \item
   SSB/PBCH basic acquisition
 \item
-  HARQ va RV combining
+  HARQ va RV combining nang cao hon baseline hien co
 \end{itemize}
 
 \subsubsection{9.2. Muc 2: Tu standard-faithful PHY sang MAC-coupled
@@ -1140,13 +1143,13 @@ Can them:
 \begin{itemize}
 \tightlist
 \item
-  scheduler
+  scheduler dong thay vi grant replay
 \item
-  DCI/grant logic
+  DCI/grant logic chi tiet hon
 \item
   CQI/PMI/RI feedback abstraction
 \item
-  retransmission loop
+  retransmission loop gan hon MAC HARQ thuc te
 \item
   uplink channels
 \end{itemize}
@@ -1330,15 +1333,16 @@ Nhom & 5G that & Du an \\
 \endlastfoot
 UE/RAN/Core & Co & Khong, chi PHY simulator \\
 Downlink PHY & Co & Co \\
-Uplink PHY & Co & Chua \\
+Uplink PHY & Co & Baseline \\
 OFDM numerology & Co & Co, mot phan \\
 Resource grid & Co & Co \\
 DMRS & Co & Co, simplified \\
-CSI-RS / PT-RS / SRS & Co & Chua \\
+CSI-RS / PT-RS / SRS & Co & Baseline \\
 LDPC / Polar chuan & Co & Chua, chi inspired \\
-HARQ & Co & Chua \\
-MIMO / beamforming & Co & Chua \\
-Scheduler / DCI / CORESET & Co & Scaffold don gian \\
+HARQ & Co & Baseline P3 \\
+MIMO / beamforming & Co & SU-MIMO baseline \\
+Scheduler / DCI / CORESET & Co & DCI-like grant replay + scaffold don
+gian \\
 Core network & Co & Chua \\
 GUI introspection & Thuong khong lo ra ngoai & Co, rat manh \\
 Batch teaching experiments & Khong phai chuc nang deployment & Co \\
