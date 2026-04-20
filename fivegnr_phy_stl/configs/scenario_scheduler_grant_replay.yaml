@@ -1,0 +1,45 @@
+simulation:
+  capture_slots: 4
+
+link:
+  channel_type: data
+
+csi:
+  enabled: false
+  replay_feedback: false
+
+harq:
+  enabled: false
+
+scheduler:
+  enabled: true
+  repeat_grants: true
+  grants:
+    - grant_id: 100
+      channel_type: data
+      modulation: QPSK
+      target_rate: 0.45
+      num_codewords: 1
+      num_layers: 1
+      num_ports: 1
+      num_tx_antennas: 1
+      num_rx_antennas: 1
+      precoding_mode: identity
+    - grant_id: 101
+      channel_type: data
+      modulation: 16QAM
+      target_rate: 0.50
+      num_codewords: 1
+      num_layers: 2
+      num_ports: 2
+      num_tx_antennas: 2
+      num_rx_antennas: 2
+      precoding_mode: dft
+
+channel:
+  model: awgn
+  snr_db: 28.0
+
+receiver:
+  perfect_sync: true
+  perfect_channel_estimation: true

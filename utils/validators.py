@@ -62,6 +62,26 @@ def validate_config(config: dict) -> dict:
     if any(int(rv) < 0 or int(rv) > 3 for rv in rv_sequence):
         raise ValueError("harq.rv_sequence values must be in [0, 3].")
 
+    scheduler = config.get("scheduler", {})
+    grants = scheduler.get("grants", [])
+    if grants and not isinstance(grants, list):
+        raise ValueError("scheduler.grants must be a list.")
+    for grant in grants:
+        if not isinstance(grant, dict):
+            raise ValueError("Each scheduler grant must be a mapping.")
+        if "rv" in grant and (int(grant["rv"]) < 0 or int(grant["rv"]) > 3):
+            raise ValueError("scheduler grant rv values must be in [0, 3].")
+        if "num_codewords" in grant and int(grant["num_codewords"]) < 1:
+            raise ValueError("scheduler grant num_codewords must be at least 1.")
+        if "num_layers" in grant and int(grant["num_layers"]) < 1:
+            raise ValueError("scheduler grant num_layers must be at least 1.")
+        if "num_ports" in grant and int(grant["num_ports"]) < 1:
+            raise ValueError("scheduler grant num_ports must be at least 1.")
+        if "modulation" in grant and str(grant["modulation"]).upper() not in {"QPSK", "16QAM", "64QAM", "256QAM"}:
+            raise ValueError("scheduler grant modulation must be QPSK, 16QAM, 64QAM, or 256QAM.")
+        if "target_rate" in grant and float(grant["target_rate"]) <= 0:
+            raise ValueError("scheduler grant target_rate must be positive.")
+
     coding = config.get("coding", {})
     if int(coding.get("code_block_payload_bits", 1)) < 1:
         raise ValueError("coding.code_block_payload_bits must be at least 1.")

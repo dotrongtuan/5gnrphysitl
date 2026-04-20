@@ -18,6 +18,7 @@ from phy.harq import HarqProcessManager
 from phy.kpi import LinkKpiSummary, bit_error_rate, block_error_rate, spectral_efficiency_bps_hz, throughput_bps
 from phy.receiver import NrReceiver
 from phy.resource_grid import ResourceGrid
+from phy.scheduler import apply_grant_to_config, build_dci_grant, scheduler_enabled, select_grant_spec
 from phy.transmitter import NrTransmitter
 from utils.file_transfer import (
     build_file_payload_package,
@@ -285,6 +286,32 @@ def _insert_harq_pipeline_stage(result: Dict[str, Any], harq_feedback: dict[str,
                 f"Attempt {int(harq_feedback.get('attempt_index', 0))} | "
                 f"RV {int(harq_feedback.get('rv', 0))} | "
                 f"ACK={bool(harq_feedback.get('ack', False))}"
+            ),
+        },
+    )
+    result["pipeline"] = _normalize_pipeline(pipeline)
+
+
+def _insert_scheduling_pipeline_stage(result: Dict[str, Any], grant_payload: dict[str, object]) -> None:
+    pipeline = list(result.get("pipeline", []))
+    pipeline.insert(
+        0,
+        {
+            "section": "Control",
+            "stage": "DCI-like scheduling grant",
+            "domain": "control",
+            "description": "A minimal scheduler-facing grant selects the slot transmission parameters: channel type, MCS, spatial layers, precoder, HARQ process, NDI, RV, and resource allocation summary.",
+            "preview_kind": "text",
+            "data": grant_payload,
+            "artifact_type": "text",
+            "input_shape": [1],
+            "output_shape": [int(grant_payload.get("allocated_re_count", 0))],
+            "notes": (
+                f"Grant {int(grant_payload.get('grant_id', 0))} | "
+                f"{grant_payload.get('channel_type', 'data')} | "
+                f"{grant_payload.get('modulation', 'QPSK')} | "
+                f"layers={int(grant_payload.get('num_layers', 1))} | "
+                f"RV={int(grant_payload.get('rv', 0))}"
             ),
         },
     )
@@ -1461,32 +1488,38 @@ def simulate_link_sequence(
     harq_trace: list[dict[str, object]] = []
     replay_enabled = bool(sequence_config.get("csi", {}).get("replay_feedback", False)) and _csi_replay_supported(active_channel_type)
     harq_manager = HarqProcessManager(sequence_config)
-    harq_enabled = bool(harq_manager.enabled and _harq_supported(active_channel_type))
+    scheduler_active = scheduler_enabled(sequence_config)
+    harq_enabled = bool(harq_manager.enabled)
     payload_rng = np.random.default_rng(int(sequence_config.get("simulation", {}).get("seed", 0)) + 911)
     for timeline_index in range(capture_slots):
-        slot_config = sequence_config
+        grant_spec = select_grant_spec(sequence_config, timeline_index) if scheduler_active else {}
+        slot_config = apply_grant_to_config(sequence_config, grant_spec) if grant_spec else sequence_config
+        scheduled_channel_type = slot_config.get("link", {}).get("channel_type", active_channel_type)
         slot_payload_bits = payload_bits
         harq_info: dict[str, object] | None = None
         harq_process = None
-        if harq_enabled:
+        slot_harq_enabled = bool(harq_enabled and _harq_supported(scheduled_channel_type))
+        if slot_harq_enabled:
             harq_process, slot_payload_bits, harq_info = harq_manager.prepare_payload(
                 timeline_index=timeline_index,
                 payload_bits=payload_bits,
-                payload_size_bits=_payload_size_bits_for_channel(sequence_config, active_channel_type),
+                payload_size_bits=_payload_size_bits_for_channel(slot_config, scheduled_channel_type),
                 rng=payload_rng,
             )
             slot_config = deepcopy(sequence_config)
+            if grant_spec:
+                slot_config = apply_grant_to_config(slot_config, grant_spec)
             slot_config.setdefault("coding", {})
             slot_config["coding"]["redundancy_version"] = int(harq_info["rv"])
 
         slot_result = simulate_link(
             config=slot_config,
-            channel_type=active_channel_type,
+            channel_type=scheduled_channel_type,
             payload_bits=slot_payload_bits,
             seed_offset=timeline_index,
             timeline_index=timeline_index,
         )
-        if harq_enabled and harq_info is not None and harq_process is not None:
+        if slot_harq_enabled and harq_info is not None and harq_process is not None:
             harq_info["soft_observations"] = int(harq_process.attempt_index + 1)
             harq_feedback = _apply_harq_soft_combining(
                 result=slot_result,
@@ -1497,24 +1530,34 @@ def simulate_link_sequence(
             _insert_harq_pipeline_stage(slot_result, harq_feedback)
             harq_trace.append({"timeline_index": int(timeline_index), **dict(harq_feedback)})
             harq_process.complete_attempt(bool(slot_result["rx"].crc_ok))
+        slot_grant = build_dci_grant(
+            config=slot_config,
+            tx_metadata=slot_result["tx"].metadata,
+            slot_context=slot_result["slot_context"],
+            harq_info=harq_info,
+            grant_spec=grant_spec,
+        )
+        grant_payload = slot_grant.as_dict()
+        slot_result["scheduled_grant"] = grant_payload
+        if scheduler_active or slot_harq_enabled:
+            _insert_scheduling_pipeline_stage(slot_result, grant_payload)
         slot_results.append(slot_result)
         schedule_trace.append(
             {
-                "timeline_index": int(timeline_index),
-                "scheduled_layers": int(slot_result["tx"].metadata.spatial_layout.num_layers),
-                "scheduled_precoding_mode": str(slot_result["config"].get("precoding", {}).get("mode", "identity")),
-                "scheduled_pmi": str(slot_result["config"].get("precoding", {}).get("pmi", "n/a")),
-                "scheduled_modulation": str(slot_result["config"].get("modulation", {}).get("scheme", "QPSK")),
-                "scheduled_target_rate": float(slot_result["config"].get("coding", {}).get("target_rate", 0.5)),
-                "harq_process_id": int(harq_info.get("process_id", 0)) if harq_info else -1,
-                "harq_redundancy_version": int(harq_info.get("rv", 0)) if harq_info else int(slot_result["config"].get("coding", {}).get("redundancy_version", 0)),
-                "harq_ndi": int(harq_info.get("ndi", 0)) if harq_info else 0,
+                **grant_payload,
+                "scheduled_layers": int(grant_payload["num_layers"]),
+                "scheduled_precoding_mode": str(grant_payload["precoding_mode"]),
+                "scheduled_pmi": str(grant_payload["pmi"]),
+                "scheduled_modulation": str(grant_payload["modulation"]),
+                "scheduled_target_rate": float(grant_payload["target_rate"]),
+                "harq_redundancy_version": int(grant_payload["rv"]),
+                "harq_ndi": int(grant_payload["ndi"]),
             }
         )
         if slot_result.get("csi_feedback") is not None:
             csi_entry = {"timeline_index": int(timeline_index), **dict(slot_result["csi_feedback"])}
             csi_trace.append(csi_entry)
-            harq_retx_pending = bool(harq_enabled and harq_process is not None and harq_process.active)
+            harq_retx_pending = bool(slot_harq_enabled and harq_process is not None and harq_process.active)
             if replay_enabled and timeline_index < capture_slots - 1 and not harq_retx_pending:
                 sequence_config = _apply_csi_feedback_to_config(
                     sequence_config,
@@ -1538,9 +1581,10 @@ def simulate_link_sequence(
         "slots_crc_passed": int(sum(entry["rx"].crc_ok for entry in slot_results)),
         "slots_crc_failed": int(sum(not entry["rx"].crc_ok for entry in slot_results)),
         "csi_replay_enabled": replay_enabled,
+        "scheduler_enabled": scheduler_active,
         "csi_trace": csi_trace,
         "schedule_trace": schedule_trace,
-        "harq_enabled": harq_enabled,
+        "harq_enabled": bool(harq_trace),
         "harq_trace": harq_trace,
         "harq_ack_count": int(sum(1 for entry in harq_trace if bool(entry.get("ack", False)))),
         "harq_nack_count": int(sum(1 for entry in harq_trace if not bool(entry.get("ack", False)))),

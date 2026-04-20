@@ -53,6 +53,12 @@ harq:
   rv_sequence: [0, 2, 3, 1]
   soft_combining: true
 
+scheduler:
+  enabled: false
+  rnti: 4660
+  repeat_grants: true
+  grants: []
+
 frame:
   control_symbols: 2
   pdsch_start_symbol: 2
