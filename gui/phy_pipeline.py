@@ -70,7 +70,7 @@ class PhyPipelinePanel(QWidget):
         self.overview_label.setTextFormat(Qt.RichText)
         self.overview_label.setText(
             "<b>Interactive PHY Flow Explorer</b><br>"
-            "Bits -> TB CRC -> Segmentation + CB CRC -> Coding -> Rate Matching -> Scrambling -> QAM Mapping -> Codeword Split -> Layer Mapping -> Precoding / Port Mapping -> (Optional UL Transform Precoding) -> Resource Grid + DMRS -> "
+            "Bits -> TB CRC -> Segmentation + CB CRC -> Coding -> Rate Matching -> Scrambling -> QAM Mapping -> Codeword Split -> Layer Mapping -> Precoding / Port Mapping -> (Optional UL Transform Precoding) -> VRB -> PRB Mapping -> Resource Grid + DMRS -> "
             "OFDM/IFFT + CP -> Channel/Impairments -> Sync -> FFT -> Channel Estimation -> Equalization -> "
             "(Optional UL Inverse Transform) -> Demapping -> Decoding -> CRC Check<br>"
             "PRACH baseline: Preamble ID -> Zadoff-Chu preamble -> PRACH occasion -> OFDM -> Channel -> Correlation detector -> Preamble decision"
@@ -183,6 +183,15 @@ class PhyPipelinePanel(QWidget):
         artifact_row.addWidget(self.artifact_selector, stretch=1)
         info_layout.addLayout(artifact_row)
 
+        waveform_row = QHBoxLayout()
+        waveform_row.addWidget(QLabel("Waveform view"))
+        self.waveform_view_selector = QComboBox()
+        self.waveform_view_selector.addItem("Raw amplitude", "raw")
+        self.waveform_view_selector.addItem("Normalized amplitude", "normalized")
+        self.waveform_view_selector.addItem("Envelope dB", "db")
+        waveform_row.addWidget(self.waveform_view_selector, stretch=1)
+        info_layout.addLayout(waveform_row)
+
         self.artifact_caption = QLabel("Stage artifacts will appear here.")
         self.artifact_caption.setWordWrap(True)
         info_layout.addWidget(self.artifact_caption)
@@ -221,15 +230,17 @@ class PhyPipelinePanel(QWidget):
         self.slot_slider.valueChanged.connect(self._on_slot_changed)
         self.symbol_slider.valueChanged.connect(self._on_symbol_changed)
         self.artifact_selector.currentIndexChanged.connect(self._render_current_artifact)
+        self.waveform_view_selector.currentIndexChanged.connect(self._render_current_artifact)
 
     @staticmethod
     def _style_plot(plot_widget: pg.PlotWidget) -> None:
+        plot_widget.setBackground("#07111f")
         plot_item = plot_widget.getPlotItem()
-        plot_item.showGrid(x=True, y=True, alpha=0.25)
+        plot_item.showGrid(x=True, y=True, alpha=0.32)
         plot_item.getAxis("left").setTextPen("#94a3b8")
         plot_item.getAxis("bottom").setTextPen("#94a3b8")
-        plot_item.getAxis("left").setPen(pg.mkPen("#475569"))
-        plot_item.getAxis("bottom").setPen(pg.mkPen("#475569"))
+        plot_item.getAxis("left").setPen(pg.mkPen("#64748b"))
+        plot_item.getAxis("bottom").setPen(pg.mkPen("#64748b"))
         plot_item.titleLabel.item.setDefaultTextColor(pg.mkColor("#d8dee9"))
 
     def set_result(self, result: dict[str, Any]) -> None:
@@ -647,11 +658,12 @@ class PhyPipelinePanel(QWidget):
 
     def _reset_plot(self, plot_widget: pg.PlotWidget, title: str) -> None:
         plot_widget.clear()
+        self._style_plot(plot_widget)
         plot_item = plot_widget.getPlotItem()
         plot_item.setTitle(title)
-        plot_item.showGrid(x=True, y=True, alpha=0.25)
         plot_item.setLabel("bottom", "")
         plot_item.setLabel("left", "")
+        plot_item.getViewBox().enableAutoRange(axis=pg.ViewBox.XYAxes, enable=True)
         if getattr(plot_item, "legend", None) is not None:
             plot_item.legend.scene().removeItem(plot_item.legend)
             plot_item.legend = None
@@ -665,7 +677,7 @@ class PhyPipelinePanel(QWidget):
         if kind == "bits":
             self._plot_bits(plot_item, np.asarray(payload))
         elif kind == "waveform":
-            self._plot_waveform(plot_item, payload)
+            self._plot_waveform(plot_item, self._waveform_payload_with_view(payload))
         elif kind == "spectrum":
             self._plot_line(plot_item, payload)
         elif kind == "grid":
@@ -692,7 +704,7 @@ class PhyPipelinePanel(QWidget):
         plot_item = self.secondary_plot.getPlotItem()
 
         if kind == "waveform":
-            waveform = np.asarray(payload.get("waveform", np.array([])), dtype=np.complex128)
+            waveform = self._first_waveform_stream(np.asarray(payload.get("waveform", np.array([])), dtype=np.complex128))
             symbol_length = int(payload.get("symbol_length", 0))
             if symbol_length <= 0 or waveform.size == 0:
                 self._plot_text(plot_item, "No symbol-level waveform segment is available.")
@@ -700,13 +712,38 @@ class PhyPipelinePanel(QWidget):
             start = selected_symbol * symbol_length
             end = min(start + symbol_length, waveform.size)
             segment = waveform[start:end]
+            symbol_rms = self._symbol_rms_values(waveform, symbol_length)
+            selected_rms = float(symbol_rms[min(selected_symbol, symbol_rms.size - 1)]) if symbol_rms.size else 0.0
+            active_threshold = max(float(np.max(symbol_rms)) * 1e-3, 1e-10) if symbol_rms.size else 1e-10
+            active_symbols = np.flatnonzero(symbol_rms > active_threshold) if symbol_rms.size else np.array([], dtype=int)
+            first_active_symbol = int(active_symbols[0]) if active_symbols.size else 0
+            idle_note = ""
+            if selected_rms <= active_threshold and active_symbols.size:
+                idle_note = (
+                    f"Selected symbol {selected_symbol} has near-zero waveform energy; "
+                    f"first energetic symbol is {first_active_symbol}. "
+                    "Move the Symbol slider to inspect active OFDM content."
+                )
+                plot_item.setTitle(f"Selected symbol view: {selected_symbol} (idle; first active {first_active_symbol})")
             self._plot_waveform(
                 plot_item,
-                {
-                    "waveform": segment,
-                    "x_label": "Sample in OFDM symbol",
-                    "y_label": "Amplitude",
-                },
+                self._waveform_payload_with_view(
+                    {
+                        "waveform": segment,
+                        "x_label": "Sample in OFDM symbol",
+                        "y_label": "Amplitude",
+                        "symbol_length": symbol_length,
+                        "cp_length": int(payload.get("cp_length", 0)),
+                        "fft_size": int(payload.get("fft_size", max(symbol_length - int(payload.get("cp_length", 0)), 0))),
+                        "symbol_index": selected_symbol,
+                        "segment_start": start,
+                        "max_guided_symbols": 1,
+                        "max_samples": symbol_length,
+                        "selected_symbol_rms": selected_rms,
+                        "first_active_symbol": first_active_symbol,
+                        "idle_note": idle_note,
+                    }
+                ),
             )
             return
 
@@ -760,6 +797,29 @@ class PhyPipelinePanel(QWidget):
             return
 
         self._plot_text(plot_item, "No symbol-level artifact is defined for this stage.")
+
+    @staticmethod
+    def _first_waveform_stream(waveform: np.ndarray) -> np.ndarray:
+        view = np.asarray(waveform, dtype=np.complex128)
+        if view.ndim > 1:
+            return view.reshape(view.shape[0], -1)[0]
+        return view.reshape(-1)
+
+    @staticmethod
+    def _symbol_rms_values(waveform: np.ndarray, symbol_length: int) -> np.ndarray:
+        if symbol_length <= 0:
+            return np.array([], dtype=float)
+        view = PhyPipelinePanel._first_waveform_stream(waveform)
+        symbols = view.size // symbol_length
+        if symbols <= 0:
+            return np.array([], dtype=float)
+        matrix = view[: symbols * symbol_length].reshape(symbols, symbol_length)
+        return np.sqrt(np.mean(np.abs(matrix) ** 2, axis=1))
+
+    def _waveform_payload_with_view(self, payload: Any) -> dict[str, Any]:
+        updated = dict(payload or {})
+        updated["display_mode"] = str(self.waveform_view_selector.currentData() or "raw")
+        return updated
 
     def _rebuild_flow(self) -> None:
         while self.flow_row.count():
@@ -1361,6 +1421,22 @@ class PhyPipelinePanel(QWidget):
         tx_meta = tx.metadata
         coding_meta = tx_meta.coding_metadata
         numerology = tx_meta.numerology
+        vrb_mapping = getattr(tx_meta, "vrb_mapping", getattr(tx_meta.mapping, "vrb_mapping", None))
+        vrb_grid_mask = (
+            vrb_mapping.grid_mask(numerology.symbols_per_slot, numerology.active_subcarriers)
+            if vrb_mapping is not None
+            else np.ones((numerology.symbols_per_slot, numerology.active_subcarriers), dtype=np.float32)
+        )
+        vrb_prb_pairs = (
+            np.column_stack(
+                [
+                    np.asarray(vrb_mapping.vrb_indices, dtype=float),
+                    np.asarray(vrb_mapping.prb_indices, dtype=float),
+                ]
+            )
+            if vrb_mapping is not None and getattr(vrb_mapping, "vrb_indices", np.array([])).size
+            else np.zeros((0, 2), dtype=float)
+        )
         stages = [
             {
                 "key": "bits",
@@ -1651,6 +1727,65 @@ class PhyPipelinePanel(QWidget):
                 ],
             },
             {
+                "key": "vrb_prb_mapping",
+                "section": "TX",
+                "flow_label": "VRB -> PRB",
+                "title": "Virtual Resource Block Mapping",
+                "description": (
+                    "Scheduled VRBs are translated to PRBs before payload RE placement. "
+                    "This makes the frequency-domain resource allocation visible between precoding/port mapping and the final resource grid."
+                ),
+                "metrics": {
+                    "Enabled": bool(getattr(vrb_mapping, "enabled", False)),
+                    "Mapping type": getattr(vrb_mapping, "mapping_type", "n/a"),
+                    "BWP start PRB": int(getattr(vrb_mapping, "bwp_start_prb", 0)),
+                    "BWP size PRB": int(getattr(vrb_mapping, "bwp_size_prb", 0)),
+                    "Start VRB": int(getattr(vrb_mapping, "start_vrb", 0)),
+                    "Allocated VRBs": int(getattr(vrb_mapping, "num_vrbs", 0)),
+                    "Allocated PRBs": int(getattr(vrb_mapping, "allocated_prb_count", 0)),
+                    "Allocated subcarriers": int(getattr(vrb_mapping, "allocated_subcarrier_count", 0)),
+                },
+                "artifacts": [
+                    {
+                        "name": "VRB allocation mask",
+                        "kind": "grid",
+                        "payload": {"image": vrb_grid_mask, "lookup": "plasma", "levels": (0.0, 1.0)},
+                        "description": "Binary mask of subcarriers belonging to the scheduled VRB/PRB allocation across the slot.",
+                    },
+                    {
+                        "name": "VRB -> PRB pairs",
+                        "kind": "multi_line",
+                        "payload": {
+                            "x_label": "Allocated VRB",
+                            "y_label": "Index",
+                            "series": [
+                                {
+                                    "x": vrb_prb_pairs[:, 0] if vrb_prb_pairs.size else np.array([], dtype=float),
+                                    "y": vrb_prb_pairs[:, 0] if vrb_prb_pairs.size else np.array([], dtype=float),
+                                    "color": "#64748b",
+                                },
+                                {
+                                    "x": vrb_prb_pairs[:, 0] if vrb_prb_pairs.size else np.array([], dtype=float),
+                                    "y": vrb_prb_pairs[:, 1] if vrb_prb_pairs.size else np.array([], dtype=float),
+                                    "color": "#38bdf8",
+                                },
+                            ],
+                        },
+                        "description": "VRB index compared with the resulting PRB index. Non-interleaved mapping follows the diagonal; interleaved mapping visibly permutes the PRBs.",
+                    },
+                    {
+                        "name": "Mapping table",
+                        "kind": "text",
+                        "payload": self._vrb_mapping_table_text(vrb_mapping),
+                        "description": "Compact table of VRB-to-PRB and PRB-to-subcarrier allocation for the current slot.",
+                    },
+                ],
+                "notes": (
+                    "Baseline scope: non-interleaved mapping is direct; interleaved mapping is a deterministic teaching model for visualizing distributed allocation, "
+                    "not a complete DCI/RIV/RBG procedure."
+                ),
+            },
+            {
                 "key": "resource_grid_dmrs",
                 "section": "TX",
                 "flow_label": "Grid + DMRS",
@@ -1698,7 +1833,7 @@ class PhyPipelinePanel(QWidget):
                     "Waveform samples": tx.waveform.size,
                 },
                 "artifacts": [
-                    {"name": "TX waveform", "kind": "waveform", "payload": {"waveform": tx.waveform, "symbol_length": numerology.fft_size + numerology.cp_length, "x_label": "Sample", "y_label": "Amplitude"}, "description": "Time-domain transmit waveform after OFDM modulation."},
+                    {"name": "TX waveform", "kind": "waveform", "payload": {"waveform": tx.waveform, "symbol_length": numerology.fft_size + numerology.cp_length, "fft_size": numerology.fft_size, "cp_length": numerology.cp_length, "x_label": "Sample", "y_label": "Amplitude"}, "description": "Time-domain transmit waveform after OFDM modulation."},
                     {"name": "TX spectrum", "kind": "spectrum", "payload": tx_spectrum, "description": "Power spectral density estimate of the OFDM transmit waveform."},
                 ],
             },
@@ -1717,7 +1852,7 @@ class PhyPipelinePanel(QWidget):
                     "Path loss (dB)": config.get("channel", {}).get("path_loss_db", 0.0),
                 },
                 "artifacts": [
-                    {"name": "Channel output waveform", "kind": "waveform", "payload": {"waveform": channel_waveform, "symbol_length": numerology.fft_size + numerology.cp_length, "x_label": "Sample", "y_label": "Amplitude"}, "description": "Waveform after channel and impairment processing."},
+                    {"name": "Channel output waveform", "kind": "waveform", "payload": {"waveform": channel_waveform, "symbol_length": numerology.fft_size + numerology.cp_length, "fft_size": numerology.fft_size, "cp_length": numerology.cp_length, "x_label": "Sample", "y_label": "Amplitude"}, "description": "Waveform after channel and impairment processing."},
                     {"name": "Impulse response", "kind": "line", "payload": {"x": np.arange(np.asarray(channel_state.get("impulse_response", np.array([1.0]))).size), "y": np.abs(np.asarray(channel_state.get("impulse_response", np.array([1.0])))), "x_label": "Tap", "y_label": "Magnitude"}, "description": "Discrete-time channel impulse response used by the simulator."},
                     {"name": "Frequency response", "kind": "line", "payload": {"x": np.arange(avg_channel.size), "y": 20.0 * np.log10(avg_channel + 1e-9), "x_label": "Subcarrier", "y_label": "Magnitude (dB)"}, "description": "Average channel frequency response magnitude across the grid."},
                 ],
@@ -1737,7 +1872,7 @@ class PhyPipelinePanel(QWidget):
                 "artifacts": [
                     {"name": "Timing correlation", "kind": "line", "payload": timing_trace, "description": "Correlation metric used to detect the best OFDM symbol boundary."},
                     {"name": "CFO estimation trace", "kind": "multi_line", "payload": cfo_trace, "description": "Per-symbol CFO phase and correlation magnitude derived from the cyclic prefix."},
-                    {"name": "Corrected waveform", "kind": "waveform", "payload": {"waveform": corrected_waveform, "symbol_length": numerology.fft_size + numerology.cp_length, "x_label": "Sample", "y_label": "Amplitude"}, "description": "Waveform after timing alignment and CFO correction."},
+                    {"name": "Corrected waveform", "kind": "waveform", "payload": {"waveform": corrected_waveform, "symbol_length": numerology.fft_size + numerology.cp_length, "fft_size": numerology.fft_size, "cp_length": numerology.cp_length, "x_label": "Sample", "y_label": "Amplitude"}, "description": "Waveform after timing alignment and CFO correction."},
                 ],
             },
             {
@@ -1753,7 +1888,7 @@ class PhyPipelinePanel(QWidget):
                 },
                 "artifacts": [
                     {"name": "CP-removed symbol matrix", "kind": "grid", "payload": {"image": np.abs(rx.cp_removed_tensor[0]), "lookup": "viridis"}, "description": "Magnitude of each CP-removed OFDM symbol before FFT."},
-                    {"name": "Corrected waveform", "kind": "waveform", "payload": {"waveform": corrected_waveform, "symbol_length": numerology.fft_size + numerology.cp_length, "x_label": "Sample", "y_label": "Amplitude"}, "description": "Time-domain waveform from which cyclic prefixes are removed."},
+                    {"name": "Corrected waveform", "kind": "waveform", "payload": {"waveform": corrected_waveform, "symbol_length": numerology.fft_size + numerology.cp_length, "fft_size": numerology.fft_size, "cp_length": numerology.cp_length, "x_label": "Sample", "y_label": "Amplitude"}, "description": "Time-domain waveform from which cyclic prefixes are removed."},
                 ],
             },
             {
@@ -2267,6 +2402,27 @@ class PhyPipelinePanel(QWidget):
         return "\n".join(f"CB{index}: {'PASS' if bool(status) else 'FAIL'}" for index, status in enumerate(statuses))
 
     @staticmethod
+    def _vrb_mapping_table_text(vrb_mapping: Any) -> str:
+        if vrb_mapping is None:
+            return "No VRB mapping object is attached to this transmission."
+        vrbs = np.asarray(getattr(vrb_mapping, "vrb_indices", np.array([], dtype=int)), dtype=int)
+        prbs = np.asarray(getattr(vrb_mapping, "prb_indices", np.array([], dtype=int)), dtype=int)
+        if vrbs.size == 0 or prbs.size == 0:
+            return "No allocated VRBs are available."
+        rows = [
+            f"enabled={bool(getattr(vrb_mapping, 'enabled', False))}",
+            f"type={getattr(vrb_mapping, 'mapping_type', 'n/a')}",
+            f"BWP start PRB={int(getattr(vrb_mapping, 'bwp_start_prb', 0))}, BWP size={int(getattr(vrb_mapping, 'bwp_size_prb', 0))} PRB",
+            "",
+            "VRB | PRB | active subcarriers",
+            "--- | --- | ---",
+        ]
+        for vrb, prb in zip(vrbs.tolist(), prbs.tolist()):
+            sc_start = int(prb) * 12
+            rows.append(f"{int(vrb)} | {int(prb)} | {sc_start}-{sc_start + 11}")
+        return "\n".join(rows)
+
+    @staticmethod
     def _allocation_maps(result: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
         tx_meta = result["tx"].metadata
         numerology = tx_meta.numerology
@@ -2421,6 +2577,15 @@ class PhyPipelinePanel(QWidget):
             for key, value in payload.items():
                 if isinstance(value, np.ndarray):
                     summary_lines.append(f"{key}: shape={value.shape}, dtype={value.dtype}")
+                    if key == "waveform" and value.size:
+                        view = np.asarray(value, dtype=np.complex128).reshape(-1)
+                        envelope = np.abs(view)
+                        peak = float(np.max(envelope))
+                        rms = float(np.sqrt(np.mean(envelope**2)))
+                        papr_db = 10.0 * np.log10((peak**2) / (rms**2 + 1e-24)) if rms > 0 else 0.0
+                        summary_lines.append(f"waveform peak |x|: {peak:.6g}")
+                        summary_lines.append(f"waveform RMS: {rms:.6g}")
+                        summary_lines.append(f"waveform PAPR: {papr_db:.3f} dB")
                 elif isinstance(value, list) and value and isinstance(value[0], dict):
                     summary_lines.append(f"{key}: {len(value)} series")
                 else:
@@ -2454,41 +2619,149 @@ class PhyPipelinePanel(QWidget):
 
     @staticmethod
     def _plot_waveform(plot_item: pg.PlotItem, payload: dict[str, Any]) -> None:
-        waveform = np.asarray(payload.get("waveform", np.array([])), dtype=np.complex128).reshape(-1)[:2048]
+        raw_waveform = np.asarray(payload.get("waveform", np.array([])), dtype=np.complex128)
+        if raw_waveform.ndim > 1:
+            waveform_source = PhyPipelinePanel._first_waveform_stream(raw_waveform)
+            stream_note = f" | showing stream 0 of shape {tuple(raw_waveform.shape)}"
+        else:
+            waveform_source = PhyPipelinePanel._first_waveform_stream(raw_waveform)
+            stream_note = ""
+        waveform = waveform_source[: int(payload.get("max_samples", 2048))]
         if waveform.size == 0:
             plot_item.addItem(pg.TextItem("No waveform", color="#d8dee9", anchor=(0.5, 0.5)))
             return
-        x_axis = np.arange(waveform.size)
+        x_axis = np.arange(waveform.size, dtype=float)
+        envelope = np.abs(waveform)
+        measured_peak = float(np.max(envelope)) if envelope.size else 0.0
+        near_zero = measured_peak <= 1e-10
+        raw_peak = max(measured_peak, 1e-12)
+        raw_rms = float(np.sqrt(np.mean(envelope**2))) if envelope.size else 0.0
+        papr_db = 10.0 * np.log10((raw_peak**2) / (raw_rms**2 + 1e-24))
+        display_mode = str(payload.get("display_mode", "raw")).lower()
+
         plot_item.setLabel("bottom", payload.get("x_label", "Sample"))
-        plot_item.setLabel("left", payload.get("y_label", "Amplitude"), units="linear autoscaled")
         plot_item.addLegend(offset=(10, 10))
-        plot_item.plot(x_axis, waveform.real, pen=pg.mkPen("#60a5fa", width=1.2), name="I / real")
-        plot_item.plot(x_axis, waveform.imag, pen=pg.mkPen("#f59e0b", width=1.2), name="Q / imag")
-        plot_item.plot(
-            x_axis,
-            np.abs(waveform),
-            pen=pg.mkPen("#22c55e", width=1.0, style=Qt.PenStyle.DotLine),
-            name="|x|",
+
+        if display_mode == "normalized":
+            scale = raw_peak
+            i_view = waveform.real / scale
+            q_view = waveform.imag / scale
+            envelope_view = envelope / scale
+            y_limit = 1.20
+            y_lower, y_upper = -y_limit, y_limit
+            plot_item.setLabel("left", "Normalized amplitude (peak |x| = 1)")
+            stats_head = "Normalized waveform"
+        elif display_mode == "db":
+            floor_db = -80.0
+            envelope_db = 20.0 * np.log10(np.maximum(envelope / raw_peak, 10 ** (floor_db / 20.0)))
+            y_lower, y_upper = floor_db, 3.0
+            plot_item.setLabel("left", "Envelope magnitude (dB relative to peak)")
+            plot_item.addLine(y=0.0, pen=pg.mkPen("#94a3b8", width=0.8, style=Qt.PenStyle.DashLine))
+            plot_item.addLine(y=-3.0, pen=pg.mkPen("#64748b", width=0.8, style=Qt.PenStyle.DotLine))
+            plot_item.plot(x_axis, envelope_db, pen=pg.mkPen("#22c55e", width=1.4), name="20log10(|x|/peak)")
+            stats_head = "Envelope dB view"
+        else:
+            i_view = waveform.real
+            q_view = waveform.imag
+            envelope_view = envelope
+            y_limit = 1.20 * raw_peak if not near_zero else 1.0
+            y_lower, y_upper = -y_limit, y_limit
+            plot_item.setLabel("left", f"{payload.get('y_label', 'Amplitude')} (raw linear, autoscaled)")
+            stats_head = "Raw waveform"
+
+        if display_mode != "db":
+            plot_item.addLine(y=0.0, pen=pg.mkPen("#94a3b8", width=0.8, style=Qt.PenStyle.DashLine))
+            plot_item.plot(x_axis, i_view, pen=pg.mkPen("#38bdf8", width=1.35), name="I / real")
+            plot_item.plot(x_axis, q_view, pen=pg.mkPen("#f59e0b", width=1.35), name="Q / imag")
+            plot_item.plot(
+                x_axis,
+                envelope_view,
+                pen=pg.mkPen("#22c55e", width=1.15, style=Qt.PenStyle.DotLine),
+                name="|x|",
+            )
+
+        if x_axis.size > 1:
+            x_lower, x_upper = float(x_axis[0]), float(x_axis[-1])
+        else:
+            x_lower, x_upper = -0.5, 0.5
+
+        PhyPipelinePanel._add_waveform_guides(
+            plot_item=plot_item,
+            sample_count=waveform.size,
+            cp_length=int(payload.get("cp_length", 0)),
+            symbol_length=int(payload.get("symbol_length", 0)),
+            y_top=y_upper,
+            y_bottom=y_lower,
+            max_guided_symbols=int(payload.get("max_guided_symbols", 4)),
         )
 
-        y_values = np.concatenate([waveform.real, waveform.imag, np.abs(waveform)])
-        finite = y_values[np.isfinite(y_values)]
-        if finite.size:
-            y_min = float(np.min(finite))
-            y_max = float(np.max(finite))
-            peak = max(abs(y_min), abs(y_max), 1e-12)
-            if np.isclose(y_min, y_max):
-                y_min, y_max = -peak, peak
-            padding = max(0.12 * (y_max - y_min), 0.08 * peak)
-            plot_item.setYRange(y_min - padding, y_max + padding, padding=0.0)
-            stats = pg.TextItem(
-                f"Autoscaled view | peak={peak:.3e} | RMS={np.sqrt(np.mean(np.abs(waveform) ** 2)):.3e}",
-                color="#d8dee9",
-                anchor=(0.0, 1.0),
-            )
-            stats.setPos(float(x_axis[0]), y_max + padding)
-            plot_item.addItem(stats)
-        plot_item.setXRange(float(x_axis[0]), float(x_axis[-1]), padding=0.01)
+        segment_start = payload.get("segment_start")
+        segment_note = f" | global start={int(segment_start)}" if segment_start is not None else ""
+        symbol_note = f" | symbol={int(payload['symbol_index'])}" if "symbol_index" in payload else ""
+        idle_note = str(payload.get("idle_note", "")).strip()
+        selected_rms_note = (
+            f", selected-symbol RMS={float(payload['selected_symbol_rms']):.3e}"
+            if "selected_symbol_rms" in payload
+            else ""
+        )
+        stats = pg.TextItem(
+            f"{stats_head}{stream_note}{symbol_note}{segment_note}\n"
+            f"raw peak |x|={measured_peak:.3e}, raw RMS={raw_rms:.3e}{selected_rms_note}, PAPR={papr_db:.2f} dB",
+            color="#e2e8f0",
+            anchor=(0.0, 1.0),
+        )
+        stats.setPos(x_lower, y_upper)
+        plot_item.addItem(stats)
+        if idle_note:
+            idle_text = pg.TextItem(idle_note, color="#facc15", anchor=(0.0, 0.5))
+            idle_text.setPos(x_lower + 0.05 * max(x_upper - x_lower, 1.0), 0.0)
+            plot_item.addItem(idle_text)
+
+        view_box = plot_item.getViewBox()
+        view_box.enableAutoRange(axis=pg.ViewBox.XYAxes, enable=False)
+        plot_item.setXRange(x_lower, x_upper, padding=0.01 if x_axis.size > 1 else 0.0)
+        plot_item.setYRange(y_lower, y_upper, padding=0.0)
+
+    @staticmethod
+    def _add_waveform_guides(
+        *,
+        plot_item: pg.PlotItem,
+        sample_count: int,
+        cp_length: int,
+        symbol_length: int,
+        y_top: float,
+        y_bottom: float,
+        max_guided_symbols: int = 4,
+    ) -> None:
+        if sample_count <= 0 or cp_length <= 0 or symbol_length <= 0:
+            return
+        guided_symbols = min(max(max_guided_symbols, 1), int(np.ceil(sample_count / symbol_length)))
+        boundary_pen = pg.mkPen("#64748b", width=0.8, style=Qt.PenStyle.DashLine)
+        fft_start_pen = pg.mkPen("#22c55e", width=0.9, style=Qt.PenStyle.DotLine)
+        cp_pen = pg.mkPen("#38bdf8", width=0.6)
+        cp_brush = pg.mkBrush(37, 99, 235, 48)
+
+        for symbol_index in range(guided_symbols):
+            start = symbol_index * symbol_length
+            if start >= sample_count:
+                break
+            cp_end = min(start + cp_length, sample_count)
+            region = pg.LinearRegionItem(values=(start, cp_end), movable=False, brush=cp_brush, pen=cp_pen)
+            region.setZValue(-20)
+            plot_item.addItem(region)
+            if symbol_index == 0 or guided_symbols > 1:
+                plot_item.addItem(pg.InfiniteLine(pos=start, angle=90, pen=boundary_pen))
+            if cp_end < sample_count:
+                plot_item.addItem(pg.InfiniteLine(pos=cp_end, angle=90, pen=fft_start_pen))
+
+        label_y = y_top - 0.12 * (y_top - y_bottom)
+        cp_label = pg.TextItem(f"CP ({cp_length} samples)", color="#bfdbfe", anchor=(0.0, 1.0))
+        cp_label.setPos(1.0, label_y)
+        plot_item.addItem(cp_label)
+        useful_samples = max(symbol_length - cp_length, 0)
+        useful_label = pg.TextItem(f"Useful FFT ({useful_samples} samples)", color="#bbf7d0", anchor=(0.0, 1.0))
+        useful_label.setPos(float(cp_length + max(2, symbol_length * 0.02)), label_y)
+        plot_item.addItem(useful_label)
 
     @staticmethod
     def _plot_line(plot_item: pg.PlotItem, payload: dict[str, Any]) -> None:

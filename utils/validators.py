@@ -85,6 +85,12 @@ def validate_config(config: dict) -> dict:
             raise ValueError("scheduler grant modulation must be QPSK, 16QAM, 64QAM, or 256QAM.")
         if "target_rate" in grant and float(grant["target_rate"]) <= 0:
             raise ValueError("scheduler grant target_rate must be positive.")
+        mapping_type = grant.get("vrb_mapping_type", grant.get("mapping_type"))
+        if mapping_type is not None and str(mapping_type).lower().replace("-", "_") not in {"non_interleaved", "interleaved"}:
+            raise ValueError("scheduler grant VRB mapping type must be non_interleaved or interleaved.")
+        for key in ("bwp_start_prb", "bwp_size_prb", "start_vrb", "num_vrbs", "interleaver_size"):
+            if key in grant and int(grant[key]) < 0:
+                raise ValueError(f"scheduler grant {key} must be non-negative.")
 
     coding = config.get("coding", {})
     if int(coding.get("code_block_payload_bits", 1)) < 1:
@@ -175,6 +181,35 @@ def validate_config(config: dict) -> dict:
         raise ValueError("frame.ssb_subcarrier_offset + frame.ssb_subcarriers exceeds the active bandwidth.")
     if int(frame.get("coreset_subcarrier_offset", 0)) + int(frame.get("coreset_subcarriers", 12)) > active_subcarriers:
         raise ValueError("frame.coreset_subcarrier_offset + frame.coreset_subcarriers exceeds the active bandwidth.")
+
+    vrb_mapping = config.get("vrb_mapping", {})
+    if str(vrb_mapping.get("mapping_type", "non_interleaved")).lower().replace("-", "_") not in {"non_interleaved", "interleaved"}:
+        raise ValueError("vrb_mapping.mapping_type must be non_interleaved or interleaved.")
+    active_prbs = max(1, active_subcarriers // 12)
+    bwp_start_prb = int(vrb_mapping.get("bwp_start_prb", 0))
+    if bwp_start_prb < 0:
+        raise ValueError("vrb_mapping.bwp_start_prb must be non-negative.")
+    if bwp_start_prb >= active_prbs:
+        raise ValueError("vrb_mapping.bwp_start_prb must be inside the active bandwidth.")
+    default_bwp_size_prb = active_prbs - bwp_start_prb
+    bwp_size_prb = int(vrb_mapping.get("bwp_size_prb", default_bwp_size_prb) or default_bwp_size_prb)
+    if bwp_size_prb < 1:
+        raise ValueError("vrb_mapping.bwp_size_prb must be at least 1.")
+    if bwp_start_prb + bwp_size_prb > active_prbs:
+        raise ValueError("vrb_mapping.bwp_start_prb + bwp_size_prb exceeds the active bandwidth.")
+    start_vrb = int(vrb_mapping.get("start_vrb", 0))
+    if start_vrb < 0:
+        raise ValueError("vrb_mapping.start_vrb must be non-negative.")
+    if start_vrb >= bwp_size_prb:
+        raise ValueError("vrb_mapping.start_vrb must be inside the configured BWP.")
+    default_num_vrbs = bwp_size_prb - start_vrb
+    num_vrbs = int(vrb_mapping.get("num_vrbs", default_num_vrbs) or default_num_vrbs)
+    if num_vrbs < 1:
+        raise ValueError("vrb_mapping.num_vrbs must be at least 1.")
+    if start_vrb + num_vrbs > bwp_size_prb:
+        raise ValueError("vrb_mapping.start_vrb + num_vrbs exceeds the configured BWP.")
+    if int(vrb_mapping.get("interleaver_size", 2)) < 1:
+        raise ValueError("vrb_mapping.interleaver_size must be at least 1.")
 
     reference_signals = config.get("reference_signals", {})
     if int(reference_signals.get("sequence_seed", 0)) < 0:

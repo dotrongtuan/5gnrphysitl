@@ -21,6 +21,13 @@ With the current codebase, this project is strongest for teaching:
 - `DM-RS`, `PT-RS`, `CSI-RS`, `SRS`
 - synchronization, channel estimation, equalization, soft LLRs
 - file transfer over PHY as an application-level outcome
+- P3 baseline HARQ:
+  - process state
+  - `NDI`
+  - `RV`
+  - soft combining
+  - DCI-like scheduler replay
+  - `VRB -> PRB` resource allocation
 - SU-MIMO baseline:
   - `1-2 codewords`
   - `1-4 layers`
@@ -30,7 +37,7 @@ With the current codebase, this project is strongest for teaching:
 
 It is **not** yet the right tool to claim:
 
-- full HARQ behavior
+- full MAC-layer HARQ conformance behavior
 - MU-MIMO
 - Massive MIMO
 - beam management / TCI / beam failure recovery
@@ -52,6 +59,7 @@ At the end of 90 minutes, students should be able to:
 - explain the difference between data, control, broadcast, and random access
 - read constellation, grid, channel, and LLR artifacts
 - understand the difference between idealized and realistic receiver assumptions
+- explain why HARQ and scheduler grants make PHY behavior multi-slot
 - see why SU-MIMO adds `codeword -> layer -> port -> detector` domains
 
 ## Pre-Class Setup
@@ -94,12 +102,13 @@ Fallback if GNU Radio is not needed:
 
 | Segment | Time | Topic | Primary outcome |
 | --- | --- | --- | --- |
-| `D1` | `0-10 min` | Orientation | Students know what the project is and is not |
-| `D2` | `10-30 min` | End-to-end PHY walk | Students understand the TX -> channel -> RX chain |
-| `D3` | `30-50 min` | Grid and reference signals | Students see how NR occupies time-frequency resources |
-| `D4` | `50-65 min` | Uplink, PRACH, PBCH | Students separate PHY roles clearly |
-| `D5` | `65-80 min` | Realism and impairments | Students understand why receiver assumptions matter |
-| `D6` | `80-90 min` | SU-MIMO and file-transfer outcome | Students connect PHY details to spatial processing and application success |
+| `D1` | `0-8 min` | Orientation | Students know what the project is and is not |
+| `D2` | `8-25 min` | End-to-end PHY walk | Students understand the TX -> channel -> RX chain |
+| `D3` | `25-40 min` | Grid and reference signals | Students see how NR occupies time-frequency resources |
+| `D4` | `40-52 min` | Uplink, PRACH, PBCH | Students separate PHY roles clearly |
+| `D5` | `52-65 min` | Realism and impairments | Students understand why receiver assumptions matter |
+| `D6` | `65-78 min` | P3 HARQ and scheduler | Students see multi-slot retransmission and grant replay |
+| `D7` | `78-90 min` | SU-MIMO and file-transfer outcome | Students connect PHY details to spatial processing and application success |
 
 ## D1. Orientation
 
@@ -286,7 +295,81 @@ python main.py --config configs/default.yaml --override configs/scenario_vehicul
 - constellation spreads after channel and before decoder failure
 - LLR histogram becomes less confident before CRC failure
 
-## D6. SU-MIMO and File-Transfer Outcome
+## D6. P3 HARQ and Scheduler Baseline
+
+### Goal
+
+Show that PHY behavior is not only a one-slot waveform problem. In practical NR operation, a scheduler chooses what to transmit, and HARQ controls retransmission attempts through process state, `NDI`, `RV`, and soft combining.
+
+### HARQ baseline
+
+Use:
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_harq_baseline.yaml --gui
+```
+
+Focus on:
+
+- `HARQ Process Timeline`
+- RV sequence
+- soft observations
+- ACK/NACK
+- `HARQ soft combining` stage after rate recovery
+
+### DCI-like scheduler replay
+
+Use:
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_scheduler_grant_replay.yaml --gui
+```
+
+Focus on:
+
+- `DCI-like Grant Timeline`
+- scheduled modulation
+- scheduled layers
+- scheduled precoding mode
+- allocated RE/PRB summary
+
+### Coupled scheduler + HARQ
+
+Use:
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_p3_harq_scheduler_loop.yaml --gui
+```
+
+Focus on:
+
+- two HARQ processes
+- repeated `NDI`
+- RV changes across retransmissions
+- soft-buffer accumulation per process
+
+### VRB to PRB resource allocation
+
+In the GUI, set:
+
+- `VRB map = interleaved`
+- `BWP size PRB = 24`
+- `Start VRB = 6`
+- `VRB count = 4`
+
+Then run the default GUI and inspect:
+
+- `VRB -> PRB Mapping`
+- `Resource Grid + RS`
+
+Message to students:
+
+- HARQ is the reliability bridge between PHY decoding and MAC retransmission control
+- DCI-like grants are scheduling decisions, not modulation blocks
+- VRB/PRB allocation decides where the payload can occupy the frequency grid
+- this is still a P3 teaching baseline, not full MAC HARQ conformance
+
+## D7. SU-MIMO and File-Transfer Outcome
 
 ### Part A. SU-MIMO baseline
 
@@ -335,6 +418,8 @@ Message to students:
 
 - Which artifact best explains why a run passes or fails?
 - Why is PBCH not “just another data channel”?
+- Why does HARQ need both `process_id` and `NDI`?
+- Why is `VRB -> PRB` a scheduler/resource-allocation concept rather than a QAM concept?
 - Why can a large image fail even when many chunks decode correctly?
 - Why does SU-MIMO require new domains beyond the classic SISO chain?
 

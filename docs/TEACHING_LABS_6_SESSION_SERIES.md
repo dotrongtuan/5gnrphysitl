@@ -21,11 +21,12 @@ This series is a good fit for teaching:
 - synchronization and channel-estimation sensitivity
 - PRACH and PBCH roles
 - file transfer over PHY
+- P3 baseline HARQ and DCI-like scheduler replay
 - SU-MIMO baseline and CSI loop concepts
 
 It is not designed to teach:
 
-- full HARQ behavior
+- full MAC-layer HARQ conformance behavior
 - MU-MIMO scheduling
 - Massive MIMO beam management
 - complete 5G protocol stack procedures
@@ -76,6 +77,8 @@ Fallback without GNU Radio:
 | `L4` | Receiver realism and impairments | degradation analysis |
 | `L5` | File transfer over PHY | file success vs SNR study |
 | `L6` | SU-MIMO and CSI baseline | spatial-domain analysis report |
+
+Optional extension after `L5` or `L6`: `P3 HARQ and scheduler baseline`, when the course needs to connect PHY decoding quality to retransmission and grant control.
 
 ---
 
@@ -419,6 +422,76 @@ A short technical note with:
 ### Discussion Prompt
 
 Why does SU-MIMO require separate codeword, layer, and port domains instead of only “more antennas”?
+
+---
+
+## Optional Extension Lab. P3 HARQ and DCI-like Scheduler
+
+### Objective
+
+- connect PHY decoding to retransmission behavior
+- distinguish `HARQ process`, `NDI`, `RV`, `soft combining`, `DCI-like grant`, and `VRB -> PRB` resource allocation
+
+### Runs
+
+HARQ baseline:
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_harq_baseline.yaml --gui
+```
+
+Scheduler replay:
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_scheduler_grant_replay.yaml --gui
+```
+
+Coupled HARQ + scheduler:
+
+```powershell
+python main.py --config configs/default.yaml --override configs/scenario_p3_harq_scheduler_loop.yaml --gui
+```
+
+### GUI Settings to Check
+
+- `Capture slots >= 4`
+- `Perfect sync = On`
+- `Perfect CE = On`
+- `PHY Pipeline` tab
+- `DCI-like Grant Timeline`
+- `HARQ Process Timeline`
+- `VRB -> PRB Mapping`
+
+### Student Tasks
+
+1. In the HARQ baseline run, record the RV sequence across captured slots.
+2. In the `HARQ Process Timeline`, record process ID, RV, NDI, new-data flag, soft observations, and ACK/NACK.
+3. In the scheduler replay run, identify which fields change between grants: modulation, layers, precoding mode, and allocated RE/PRB count.
+4. In the coupled run, explain why `process_id` and `NDI` are both needed.
+5. Change GUI allocation fields to `VRB map = interleaved`, `BWP size PRB = 24`, `Start VRB = 6`, and `VRB count = 4`.
+6. Inspect `VRB -> PRB Mapping` and explain how the allocation mask affects `Resource Grid + RS`.
+
+### Expected Outcome
+
+- HARQ retransmissions reuse the same payload when `NDI` does not toggle.
+- RV changes across retransmission attempts.
+- Soft observations accumulate in the HARQ process timeline.
+- Scheduler grants can drive modulation, layers, precoding, HARQ process, RV, and resource allocation.
+- VRB allocation visibly restricts the data/DMRS region in the resource grid.
+
+### Deliverable
+
+A two-page lab note:
+
+- one table of `timeline_index`, `process_id`, `NDI`, `RV`, `new_data`, `soft_observations`, and `ACK`
+- one screenshot of `DCI-like Grant Timeline`
+- one screenshot of `HARQ Process Timeline`
+- one screenshot of `VRB -> PRB Mapping`
+- one paragraph explaining why this is still a baseline, not full MAC HARQ
+
+### Discussion Prompt
+
+Why is HARQ a bridge between PHY decoding quality and MAC scheduling behavior?
 
 ---
 

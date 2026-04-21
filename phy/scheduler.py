@@ -28,6 +28,12 @@ class DciGrant:
     pmi: str
     start_symbol: int
     symbol_count: int
+    vrb_mapping_type: str
+    bwp_start_prb: int
+    bwp_size_prb: int
+    start_vrb: int
+    num_vrbs: int
+    allocated_prb_count: int
     allocated_re_count: int
     grant_source: str = "default"
 
@@ -52,6 +58,12 @@ class DciGrant:
             "pmi": str(self.pmi),
             "start_symbol": int(self.start_symbol),
             "symbol_count": int(self.symbol_count),
+            "vrb_mapping_type": str(self.vrb_mapping_type),
+            "bwp_start_prb": int(self.bwp_start_prb),
+            "bwp_size_prb": int(self.bwp_size_prb),
+            "start_vrb": int(self.start_vrb),
+            "num_vrbs": int(self.num_vrbs),
+            "allocated_prb_count": int(self.allocated_prb_count),
             "allocated_re_count": int(self.allocated_re_count),
             "grant_source": str(self.grant_source),
         }
@@ -107,6 +119,25 @@ def apply_grant_to_config(config: Mapping[str, Any], grant_spec: Mapping[str, An
         updated.setdefault("precoding", {})["pmi"] = str(grant_spec["pmi"])
     if "rnti" in grant_spec:
         updated.setdefault("scrambling", {})["rnti"] = int(grant_spec["rnti"])
+    vrb_keys = {
+        "mapping_type",
+        "vrb_mapping_type",
+        "bwp_start_prb",
+        "bwp_size_prb",
+        "start_vrb",
+        "num_vrbs",
+        "interleaver_size",
+    }
+    if any(key in grant_spec for key in vrb_keys):
+        vrb_cfg = updated.setdefault("vrb_mapping", {})
+        if "vrb_mapping_type" in grant_spec:
+            vrb_cfg["mapping_type"] = str(grant_spec["vrb_mapping_type"]).lower()
+        if "mapping_type" in grant_spec:
+            vrb_cfg["mapping_type"] = str(grant_spec["mapping_type"]).lower()
+        for key in ("bwp_start_prb", "bwp_size_prb", "start_vrb", "num_vrbs", "interleaver_size"):
+            if key in grant_spec:
+                vrb_cfg[key] = int(grant_spec[key])
+        vrb_cfg["enabled"] = True
     return updated
 
 
@@ -135,6 +166,7 @@ def build_dci_grant(
     positions = np.asarray(getattr(tx_metadata.mapping, "positions", np.zeros((0, 2), dtype=int)), dtype=int)
     harq_payload = dict(harq_info or {})
     spec = dict(grant_spec or {})
+    vrb_mapping = getattr(tx_metadata, "vrb_mapping", getattr(tx_metadata.mapping, "vrb_mapping", None))
     return DciGrant(
         grant_id=int(spec.get("grant_id", timeline_index)),
         timeline_index=timeline_index,
@@ -155,6 +187,12 @@ def build_dci_grant(
         pmi=str(config.get("precoding", {}).get("pmi", "n/a")),
         start_symbol=start_symbol,
         symbol_count=symbol_count,
+        vrb_mapping_type=str(getattr(vrb_mapping, "mapping_type", "n/a")),
+        bwp_start_prb=int(getattr(vrb_mapping, "bwp_start_prb", 0)),
+        bwp_size_prb=int(getattr(vrb_mapping, "bwp_size_prb", 0)),
+        start_vrb=int(getattr(vrb_mapping, "start_vrb", 0)),
+        num_vrbs=int(getattr(vrb_mapping, "num_vrbs", 0)),
+        allocated_prb_count=int(getattr(vrb_mapping, "allocated_prb_count", 0)),
         allocated_re_count=int(positions.shape[0]),
         grant_source="configured" if spec else "default",
     )

@@ -106,6 +106,11 @@ class ControlPanel(QWidget):
         self.widgets["scs_khz"] = self._combo(["15", "30", "60"])
         self.widgets["fft_size"] = self._combo(["256", "512", "1024"])
         self.widgets["n_rb"] = self._spin(6, 80, 24)
+        self.widgets["vrb_mapping_type"] = self._combo(["non_interleaved", "interleaved"])
+        self.widgets["bwp_start_prb"] = self._spin(0, 80, 0)
+        self.widgets["bwp_size_prb"] = self._spin(0, 80, 0)
+        self.widgets["start_vrb"] = self._spin(0, 80, 0)
+        self.widgets["num_vrbs"] = self._spin(0, 80, 0)
         self.widgets["target_rate"] = self._dspin(0.05, 0.95, 0.50, 0.05, 2)
         self.widgets["channel_model"] = self._combo(["awgn", "rayleigh", "rician"])
         self.widgets["channel_profile"] = self._combo(
@@ -139,6 +144,11 @@ class ControlPanel(QWidget):
         form.addRow("SCS (kHz)", self.widgets["scs_khz"])
         form.addRow("FFT", self.widgets["fft_size"])
         form.addRow("RB", self.widgets["n_rb"])
+        form.addRow("VRB map", self.widgets["vrb_mapping_type"])
+        form.addRow("BWP start PRB", self.widgets["bwp_start_prb"])
+        form.addRow("BWP size PRB", self.widgets["bwp_size_prb"])
+        form.addRow("Start VRB", self.widgets["start_vrb"])
+        form.addRow("VRB count", self.widgets["num_vrbs"])
         form.addRow("Code rate", self.widgets["target_rate"])
         form.addRow("Channel model", self.widgets["channel_model"])
         form.addRow("Channel profile", self.widgets["channel_profile"])
@@ -205,6 +215,11 @@ class ControlPanel(QWidget):
         self.widgets["csi_max_rank"].setToolTip(
             "Maximum rank considered when deriving RI during the CSI feedback step."
         )
+        self.widgets["vrb_mapping_type"].setToolTip(
+            "Choose direct non-interleaved VRB-to-PRB mapping or a teaching-oriented interleaved allocation."
+        )
+        self.widgets["bwp_size_prb"].setToolTip("Use 0 to allocate the rest of the active bandwidth from BWP start PRB.")
+        self.widgets["num_vrbs"].setToolTip("Use 0 to allocate all VRBs from Start VRB to the end of the BWP.")
 
         help_label = QLabel(
             "Run: execute once and inspect final results. "
@@ -242,6 +257,12 @@ class ControlPanel(QWidget):
         self.widgets["scs_khz"].setCurrentText(str(int(config.get("numerology", {}).get("scs_khz", 30))))
         self.widgets["fft_size"].setCurrentText(str(int(config.get("numerology", {}).get("fft_size", 512))))
         self.widgets["n_rb"].setValue(int(config.get("numerology", {}).get("n_rb", 24)))
+        vrb_cfg = config.get("vrb_mapping", {})
+        self.widgets["vrb_mapping_type"].setCurrentText(str(vrb_cfg.get("mapping_type", "non_interleaved")))
+        self.widgets["bwp_start_prb"].setValue(int(vrb_cfg.get("bwp_start_prb", 0)))
+        self.widgets["bwp_size_prb"].setValue(int(vrb_cfg.get("bwp_size_prb", 0)))
+        self.widgets["start_vrb"].setValue(int(vrb_cfg.get("start_vrb", 0)))
+        self.widgets["num_vrbs"].setValue(int(vrb_cfg.get("num_vrbs", 0)))
         self.widgets["target_rate"].setValue(float(config.get("coding", {}).get("target_rate", 0.5)))
         self.widgets["channel_model"].setCurrentText(str(config.get("channel", {}).get("model", "rayleigh")))
         self.widgets["channel_profile"].setCurrentText(str(config.get("channel", {}).get("profile", "pedestrian")))
@@ -285,6 +306,15 @@ class ControlPanel(QWidget):
                 "scs_khz": float(self.widgets["scs_khz"].currentText()),
                 "fft_size": int(self.widgets["fft_size"].currentText()),
                 "n_rb": int(self.widgets["n_rb"].value()),
+            },
+            "vrb_mapping": {
+                "enabled": True,
+                "mapping_type": self.widgets["vrb_mapping_type"].currentText(),
+                "bwp_start_prb": int(self.widgets["bwp_start_prb"].value()),
+                "bwp_size_prb": int(self.widgets["bwp_size_prb"].value()),
+                "start_vrb": int(self.widgets["start_vrb"].value()),
+                "num_vrbs": int(self.widgets["num_vrbs"].value()),
+                "interleaver_size": 2,
             },
             "channel": {
                 "model": self.widgets["channel_model"].currentText(),

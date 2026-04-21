@@ -544,6 +544,12 @@ def _build_pipeline_trace(
         if gnuradio_used
         else "Waveform after channel convolution, Doppler rotation, and large-scale loss."
     )
+    vrb_mapping = getattr(tx_meta, "vrb_mapping", getattr(tx_meta.mapping, "vrb_mapping", None))
+    vrb_mask = (
+        vrb_mapping.grid_mask(tx_meta.numerology.symbols_per_slot, tx_meta.numerology.active_subcarriers)
+        if vrb_mapping is not None
+        else np.ones_like(tx_meta.tx_grid_data, dtype=np.float32)
+    )
 
     stages = [
         {
@@ -677,6 +683,23 @@ def _build_pipeline_trace(
             "notes": (
                 f"Precoding mode: {getattr(tx_meta, 'precoding_mode', 'identity')} | "
                 f"Matrix shape: {list(np.asarray(getattr(tx_meta, 'precoder_matrix', np.eye(1))).shape)}"
+            ),
+        },
+        {
+            "section": "TX",
+            "stage": "VRB-to-PRB mapping",
+            "domain": "grid",
+            "description": "Scheduled virtual resource blocks are mapped to physical resource blocks before data REs are placed in the resource grid.",
+            "preview_kind": "grid",
+            "data": vrb_mask,
+            "artifact_type": "grid",
+            "input_shape": [int(getattr(vrb_mapping, "num_vrbs", 0))],
+            "output_shape": [int(dim) for dim in np.asarray(tx_meta.tx_grid_data).shape],
+            "notes": (
+                f"type={getattr(vrb_mapping, 'mapping_type', 'n/a')} | "
+                f"BWP={getattr(vrb_mapping, 'bwp_start_prb', 0)}+{getattr(vrb_mapping, 'bwp_size_prb', 0)} PRB | "
+                f"VRB={getattr(vrb_mapping, 'start_vrb', 0)}+{getattr(vrb_mapping, 'num_vrbs', 0)} | "
+                f"allocated PRB={getattr(vrb_mapping, 'allocated_prb_count', 0)}"
             ),
         },
         {

@@ -16,6 +16,7 @@ from .reference_signals import (
     qpsk_reference_sequence,
 )
 from .types import SpatialLayout, TensorViewSpec
+from .vrb_mapping import VrbPrbMapping, build_vrb_prb_mapping
 
 
 @dataclass(slots=True)
@@ -23,6 +24,7 @@ class ChannelMapping:
     positions: np.ndarray
     bits_capacity: int
     modulation: str
+    vrb_mapping: VrbPrbMapping | None = None
 
 
 class ResourceGrid:
@@ -36,6 +38,7 @@ class ResourceGrid:
         slot_index: int = 0,
         physical_cell_id: int = 0,
         ssb_block_index: int = 0,
+        vrb_mapping: VrbPrbMapping | None = None,
     ) -> None:
         self.numerology = numerology
         self.allocation = allocation
@@ -43,6 +46,7 @@ class ResourceGrid:
         self.slot_index = int(slot_index)
         self.physical_cell_id = int(physical_cell_id) % 1008
         self.ssb_block_index = int(ssb_block_index)
+        self.vrb_mapping = vrb_mapping or build_vrb_prb_mapping({}, numerology)
         grid_shape = (numerology.symbols_per_slot, numerology.active_subcarriers)
         self.layer_grid = np.zeros(
             (self.spatial_layout.num_layers, *grid_shape),
@@ -103,6 +107,21 @@ class ResourceGrid:
     def tensor_view_specs_as_dict(self) -> dict[str, dict[str, object]]:
         return {name: spec.as_dict() for name, spec in self.tensor_view_specs().items()}
 
+    def data_subcarriers(self) -> np.ndarray:
+        subcarriers = np.asarray(self.vrb_mapping.subcarrier_indices, dtype=int)
+        if subcarriers.size == 0:
+            return np.arange(self.numerology.active_subcarriers, dtype=int)
+        return subcarriers[(0 <= subcarriers) & (subcarriers < self.numerology.active_subcarriers)]
+
+    def _filter_to_data_subcarriers(self, positions: np.ndarray) -> np.ndarray:
+        positions = np.asarray(positions, dtype=int)
+        if positions.size == 0:
+            return np.zeros((0, 2), dtype=int)
+        allowed = self.data_subcarriers()
+        mask = np.isin(positions[:, 1], allowed)
+        filtered = positions[mask]
+        return filtered.astype(int, copy=False) if filtered.size else np.zeros((0, 2), dtype=int)
+
     def pdcch_positions(self) -> np.ndarray:
         return self.search_space_positions()
 
@@ -144,12 +163,14 @@ class ResourceGrid:
 
     def dmrs_positions(self) -> np.ndarray:
         positions = []
+        allowed_subcarriers = set(int(value) for value in self.data_subcarriers().tolist())
         for symbol in self.allocation.dmrs_symbols:
             if symbol < self.allocation.pdsch_start_symbol:
                 continue
             subcarriers, _ = dmrs_pattern(self.numerology.active_subcarriers, dmrs_symbol=symbol)
             for sc in subcarriers:
-                positions.append((symbol, sc))
+                if int(sc) in allowed_subcarriers:
+                    positions.append((symbol, sc))
         return np.asarray(positions, dtype=int)
 
     def csi_rs_positions(self, *, force_active: bool = False) -> np.ndarray:
@@ -191,6 +212,7 @@ class ResourceGrid:
             comb=int(self.allocation.rs_comb),
             offset=int(self.allocation.ptrs_subcarrier_offset),
         )
+        positions = self._filter_to_data_subcarriers(positions)
         if not positions.size:
             return positions
         reserved = {tuple(position) for position in self.dmrs_positions().tolist()}
@@ -283,7 +305,7 @@ class ResourceGrid:
         reserved.update(tuple(position) for position in self.csi_rs_positions().tolist())
         reserved.update(tuple(position) for position in self.ptrs_positions(direction="downlink", channel_type="data").tolist())
         for symbol in self.allocation.pdsch_symbols(self.numerology):
-            for sc in range(self.numerology.active_subcarriers):
+            for sc in self.data_subcarriers():
                 if (symbol, sc) not in reserved:
                     positions.append((symbol, sc))
         return np.asarray(positions, dtype=int)
@@ -294,7 +316,7 @@ class ResourceGrid:
         reserved.update(tuple(position) for position in self.srs_positions().tolist())
         reserved.update(tuple(position) for position in self.ptrs_positions(direction="uplink", channel_type="data").tolist())
         for symbol in self.allocation.pusch_symbols(self.numerology):
-            for sc in range(self.numerology.active_subcarriers):
+            for sc in self.data_subcarriers():
                 if (symbol, sc) not in reserved:
                     positions.append((symbol, sc))
         return np.asarray(positions, dtype=int)
@@ -327,6 +349,7 @@ class ResourceGrid:
             "ssb_active": bool(self.allocation.ssb_active(self.slot_index)),
             "prach_active": bool(self.allocation.prach_active(self.slot_index)),
             "search_space_active": bool(self.allocation.search_space_active(self.slot_index)),
+            "vrb_mapping": self.vrb_mapping.as_dict(),
             "search_space_symbols": [
                 int(symbol)
                 for symbol in self.allocation.monitored_search_space_symbols(self.numerology, slot=self.slot_index)
@@ -407,6 +430,7 @@ class ResourceGrid:
             positions=positions,
             bits_capacity=positions.shape[0] * bits_per_symbol * max(int(self.spatial_layout.num_layers), 1),
             modulation=modulation,
+            vrb_mapping=self.vrb_mapping if channel_type in {"data", "pdsch", "pusch"} else None,
         )
 
     def csi_rs_re_mask(self) -> np.ndarray:
@@ -496,12 +520,16 @@ class ResourceGrid:
     def insert_dmrs(self, slot: int = 0, *, port: int = 0) -> Dict[str, np.ndarray]:
         inserted = []
         port_view = self.port_view(port)
+        allowed_subcarriers = set(int(value) for value in self.data_subcarriers().tolist())
         for symbol in self.allocation.dmrs_symbols:
             if symbol < self.allocation.pdsch_start_symbol:
                 continue
             subcarriers, sequence = dmrs_pattern(self.numerology.active_subcarriers, dmrs_symbol=symbol, slot=slot)
-            port_view[symbol, subcarriers] = sequence
-            inserted.extend([(symbol, sc) for sc in subcarriers])
+            keep = np.asarray([int(sc) in allowed_subcarriers for sc in subcarriers], dtype=bool)
+            selected_subcarriers = subcarriers[keep]
+            selected_sequence = sequence[keep]
+            port_view[symbol, selected_subcarriers] = selected_sequence
+            inserted.extend([(symbol, sc) for sc in selected_subcarriers])
         position_array = np.asarray(inserted, dtype=int) if inserted else np.zeros((0, 2), dtype=int)
         return {
             "positions": position_array,

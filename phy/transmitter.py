@@ -17,6 +17,7 @@ from .resource_grid import ChannelMapping, ResourceGrid
 from .scrambling import scramble_bits
 from .types import SpatialLayout
 from .uplink import apply_transform_precoding
+from .vrb_mapping import VrbPrbMapping, build_vrb_prb_mapping
 
 
 @dataclass(slots=True)
@@ -38,6 +39,7 @@ class TxMetadata:
     modulation: str
     mapper: object
     mapping: ChannelMapping
+    vrb_mapping: VrbPrbMapping
     dmrs: Dict[str, np.ndarray]
     csi_rs: Dict[str, np.ndarray]
     srs: Dict[str, np.ndarray]
@@ -88,6 +90,7 @@ class NrTransmitter:
         self.broadcast_cfg = dict(config.get("broadcast", {}))
         self.physical_cell_id = int(self.broadcast_cfg.get("physical_cell_id", 0)) % 1008
         self.ssb_block_index = int(self.broadcast_cfg.get("ssb_block_index", 0))
+        self.vrb_mapping = build_vrb_prb_mapping(config, self.numerology)
         self.precoder_spec = build_precoder(config, self.spatial_layout)
         if self.spatial_layout.num_codewords not in {1, 2}:
             raise ValueError("P2 baseline currently supports spatial.num_codewords in {1, 2}.")
@@ -149,6 +152,7 @@ class NrTransmitter:
                 spatial_layout=self.spatial_layout,
                 physical_cell_id=self.physical_cell_id,
                 ssb_block_index=self.ssb_block_index,
+                vrb_mapping=self.vrb_mapping,
             ).active_to_ifft_bins(
                 active_grid[symbol]
             )
@@ -171,6 +175,7 @@ class NrTransmitter:
             slot_index=slot_index,
             physical_cell_id=self.physical_cell_id,
             ssb_block_index=self.ssb_block_index,
+            vrb_mapping=self.vrb_mapping,
         )
         procedure_state = grid.procedure_state()
         procedure_state["prach_active"] = True
@@ -255,6 +260,7 @@ class NrTransmitter:
                 modulation="PRACH",
                 mapper=PrachMapper(prach_sequence),
                 mapping=mapping,
+                vrb_mapping=self.vrb_mapping,
                 dmrs=empty_dmrs,
                 csi_rs=empty_rs.copy(),
                 srs=empty_rs.copy(),
@@ -312,6 +318,7 @@ class NrTransmitter:
             slot_index=slot_index,
             physical_cell_id=self.physical_cell_id,
             ssb_block_index=self.ssb_block_index,
+            vrb_mapping=self.vrb_mapping,
         )
         procedure_state = grid.procedure_state()
         if direction == "downlink" and channel_type in {"control", "pdcch"}:
@@ -473,6 +480,7 @@ class NrTransmitter:
                 modulation=modulation_name,
                 mapper=mapper,
                 mapping=mapping,
+                vrb_mapping=self.vrb_mapping,
                 dmrs=dmrs,
                 csi_rs=csi_rs,
                 srs=srs,

@@ -33,13 +33,14 @@ flowchart LR
     C --> D["QAM Mapping"]
     D --> E["Codeword -> Layer Mapping"]
     E --> F["Precoding / Port Mapping"]
-    F --> G["Resource Grid + RS"]
-    G --> H["OFDM / CP"]
-    H --> I["Channel + Impairments"]
-    I --> J["Sync + Remove CP + FFT"]
-    J --> K["RE Extraction + CE + EQ + MIMO Detection"]
-    K --> L["Descrambling + Rate Recovery + Decode"]
-    L --> M["CRC / KPIs / GUI Artifacts"]
+    F --> G["VRB -> PRB Mapping"]
+    G --> H["Resource Grid + RS"]
+    H --> I["OFDM / CP"]
+    I --> J["Channel + Impairments"]
+    J --> K["Sync + Remove CP + FFT"]
+    K --> L["RE Extraction + CE + EQ + MIMO Detection"]
+    L --> M["Descrambling + Rate Recovery + Decode"]
+    M --> N["CRC / KPIs / GUI Artifacts"]
 ```
 
 ## 3. Supported Feature Set
@@ -76,7 +77,15 @@ flowchart LR
 - `SRS`
 - `PBCH-DMRS`
 
-### 3.4 GUI Capabilities
+### 3.4 Resource Allocation
+
+- baseline `VRB -> PRB` mapping for data-channel `PDSCH/PUSCH`
+- non-interleaved mapping by default
+- teaching-oriented interleaved mapping for visualizing distributed PRB allocation
+- configurable BWP start/size, start VRB, and number of allocated VRBs
+- GUI fields `BWP size PRB = 0` and `VRB count = 0` mean "use the remaining available bandwidth"
+
+### 3.5 GUI Capabilities
 
 - end-to-end `PHY Pipeline`
 - stage-by-stage playback

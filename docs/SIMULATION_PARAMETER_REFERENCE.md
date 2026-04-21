@@ -82,6 +82,16 @@ Muc dich la de giu guard band va vi tri DC. Vi du:
 - `N_RB = 24` thi so subcarrier active la `24 * 12 = 288`, hop le voi `N_FFT = 512`
 - `N_RB = 80` se khong hop le neu `N_FFT = 512`, vi `80 * 12 = 960 > 512`
 
+### 3.1. `VRB map`, `BWP start PRB`, `BWP size PRB`, `Start VRB`, `VRB count`
+
+Cac tham so nay dieu khien baseline `VRB -> PRB Mapping` trong PHY Pipeline:
+
+- `VRB map = non_interleaved`: VRB duoc anh xa truc tiep sang PRB.
+- `VRB map = interleaved`: dung hoan vi teaching de thay adjacent VRB bi trai ra cac PRB khac nhau.
+- `BWP size PRB = 0`: tu dong dung phan bandwidth con lai tinh tu `BWP start PRB`.
+- `VRB count = 0`: tu dong cap phat tu `Start VRB` den cuoi BWP.
+- Neu muon demo allocation hep, co the dat `BWP start PRB = 0`, `BWP size PRB = 24`, `Start VRB = 6`, `VRB count = 4`.
+
 ### 4. `Path loss`
 
 Trong duong kenh fading, suy hao tong cong duoc tinh theo:

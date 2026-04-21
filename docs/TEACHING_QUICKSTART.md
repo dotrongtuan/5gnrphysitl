@@ -189,7 +189,45 @@ Focus on:
 - `File Reassembly + Write`
 - why large files are more fragile at lower SNR
 
-### 8. Show SU-MIMO baseline
+### 8. Show P3 HARQ and DCI-like scheduling
+
+HARQ baseline:
+
+```powershell
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_harq_baseline.yaml --gui
+```
+
+Scheduler replay:
+
+```powershell
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_scheduler_grant_replay.yaml --gui
+```
+
+Coupled HARQ + scheduler:
+
+```powershell
+<radioconda-python> main.py --config configs/default.yaml --override configs/scenario_p3_harq_scheduler_loop.yaml --gui
+```
+
+Focus on:
+
+- `DCI-like Grant Timeline`
+- `HARQ Process Timeline`
+- `HARQ soft combining`
+- `RV`
+- `NDI`
+- `process_id`
+- `VRB -> PRB Mapping`
+
+Optional quick GUI allocation demo:
+
+- set `VRB map = interleaved`
+- set `BWP size PRB = 24`
+- set `Start VRB = 6`
+- set `VRB count = 4`
+- run default GUI and inspect `VRB -> PRB Mapping`
+
+### 9. Show SU-MIMO baseline
 
 ```powershell
 <radioconda-python> main.py --config configs/default.yaml --override configs/scenario_su_mimo_two_codeword.yaml --gui
@@ -204,7 +242,7 @@ Focus on:
 - `Layer Recovery / De-precoding`
 - `CSI Feedback`
 
-### 9. Show one batch comparison
+### 10. Show one batch comparison
 
 Closed-loop vs open-loop CSI:
 
@@ -222,12 +260,13 @@ Look at:
 
 ## If You Only Have 30 Minutes
 
-Run only these four:
+Run only these five:
 
 1. default GUI + `Step Mode`
 2. `scenario_pbch_baseline.yaml`
 3. `scenario_uplink_prach_baseline.yaml`
-4. `scenario_su_mimo_two_codeword.yaml`
+4. `scenario_p3_harq_scheduler_loop.yaml`
+5. `scenario_su_mimo_two_codeword.yaml`
 
 ---
 
@@ -236,7 +275,7 @@ Run only these four:
 Run only these two:
 
 1. default GUI + `Step Mode`
-2. `scenario_su_mimo_two_codeword.yaml`
+2. `scenario_p3_harq_scheduler_loop.yaml`
 
 ---
 

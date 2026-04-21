@@ -156,6 +156,7 @@ flowchart TD
 | `Rate Matching` | adapt coded bits to RE capacity | [`phy/coding.py`](../phy/coding.py) | rate-matched bits |
 | `Scrambling` | whiten bitstream, avoid structure | [`phy/scrambling.py`](../phy/scrambling.py) | scrambled bits, sequence |
 | `QAM Mapping` | map bits to constellation points | [`phy/modulation.py`](../phy/modulation.py) | mapping table, constellation |
+| `VRB -> PRB Mapping` | translate scheduled virtual RBs into physical RB/subcarrier allocation | [`phy/vrb_mapping.py`](../phy/vrb_mapping.py), [`phy/resource_grid.py`](../phy/resource_grid.py) | VRB mask, VRB-to-PRB table |
 | `Resource Grid + DMRS` | place data/control/pilot on REs | [`phy/resource_grid.py`](../phy/resource_grid.py), [`phy/dmrs.py`](../phy/dmrs.py) | allocation map, DMRS mask |
 | `OFDM / IFFT + CP` | convert grid to waveform | [`phy/transmitter.py`](../phy/transmitter.py) | TX waveform, spectrum |
 | `Channel / Impairments` | propagation + RF impairments | [`channel/*`](../channel) | impulse/frequency response |
@@ -418,6 +419,14 @@ Default config:
 - `dmrs_symbols = [3, 10]`
 - `control_subcarriers = 72`
 
+Baseline `VRB -> PRB` trong [`phy/vrb_mapping.py`](../phy/vrb_mapping.py):
+
+- `mapping_type = non_interleaved`: VRB duoc anh xa truc tiep sang PRB trong BWP
+- `mapping_type = interleaved`: mo hinh teaching de minh hoa distributed allocation
+- `bwp_size_prb = 0` nghia la tu dong dung phan bandwidth con lai
+- `num_vrbs = 0` nghia la tu dong cap phat tu `start_vrb` den cuoi BWP
+- mapping nay dang dieu khien PDSCH/PUSCH data RE va DMRS/PT-RS lien quan den data allocation
+
 ### Mermaids cho allocation logic
 
 ```mermaid
@@ -439,7 +448,7 @@ flowchart TB
 ### Diem chua du
 
 - khong co CORESET/SearchSpace dung nghia
-- khong co VRB/PRB mapping day du
+- co baseline `VRB -> PRB` cho PDSCH/PUSCH, nhung chua day du DCI RIV/RBG/interleaver theo tat ca procedure 3GPP
 - khong co CSI-RS, PT-RS, PTRS
 
 ## 6.8. DMRS insertion
